@@ -1,0 +1,2679 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>ระบบตีเส้นที่ดินและปักหลักหมุดสินเชื่อ (Smart Land Boundary Marker)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            font-family: 'Sarabun', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        input, select, textarea {
+            user-select: text;
+            -webkit-user-select: text;
+            font-size: 16px !important; /* ป้องกัน iOS/iPad ซูมหน้าจออัตโนมัติเวลาแตะพิมพ์ */
+        }
+        html, body {
+            background-color: #0f172a;
+            overscroll-behavior: none;
+            height: 100%;
+            height: 100dvh;
+            width: 100vw;
+            overflow: hidden;
+            position: fixed;
+            inset: 0;
+        }
+        .safe-header {
+            padding-top: max(0.5rem, env(safe-area-inset-top));
+            padding-left: max(0.75rem, env(safe-area-inset-left));
+            padding-right: max(0.75rem, env(safe-area-inset-right));
+        }
+        .safe-footer {
+            padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+            padding-left: max(0.75rem, env(safe-area-inset-left));
+            padding-right: max(0.75rem, env(safe-area-inset-right));
+        }
+        .btn-press {
+            touch-action: manipulation;
+        }
+        .btn-press:active {
+            transform: scale(0.96);
+        }
+        /* ซ่อน Scrollbar แถบรูปย่อแต่ยังเลื่อนได้ลื่นบน iPad / มือถือ */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+        }
+    </style>
+</head>
+<body class="w-full h-full overflow-hidden flex flex-col bg-slate-900 text-slate-100">
+
+    <!-- 1. แถบด้านบน (Header): อัปโหลดหลายรูป + ปุ่มแชร์เข้า LINE / เซฟรูป / สำรองข้อมูล -->
+    <header class="safe-header bg-white text-slate-800 py-2 border-b border-slate-200 flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 z-20 shadow-sm">
+        <div class="flex items-center gap-2 min-w-0">
+            <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-red-600 text-white flex items-center justify-center font-extrabold text-sm sm:text-base shrink-0 shadow-xs">
+                หมุด
+            </div>
+            <div class="truncate">
+                <h1 class="text-xs sm:text-base font-extrabold text-slate-900 leading-tight truncate">ตีเส้นที่ดิน & ปักหลักหมุด</h1>
+                <p id="photoCounterText" class="text-[10px] sm:text-[11px] text-slate-500 font-medium truncate">รองรับ iPad • มือถือ • คอมพิวเตอร์</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <!-- ปุ่มเพิ่มรูปหลายใบพร้อมกัน -->
+            <label for="multiFileInput" class="btn-press cursor-pointer bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold px-2.5 sm:px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-xs" title="เลือกรูปถ่ายจากอัลบั้มหรือถ่ายรูปใหม่">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span class="hidden xs:inline sm:inline">เพิ่มรูป</span>
+            </label>
+            <input id="multiFileInput" type="file" accept="image/*" multiple class="hidden" onchange="handleFilesSelected(event)">
+
+            <!-- ปุ่มส่งรูปเข้าช่อง Checklist เว็บหลักโดยตรง (แสดงเมื่อเปิดในหน้าต่างเว็บหลัก) -->
+            <button id="btnSendToMainChecklist" onclick="sendPhotosToMainApp()" class="hidden btn-press bg-orange-600 hover:bg-orange-700 text-white text-xs sm:text-sm font-extrabold px-2.5 sm:px-3.5 py-2 rounded-xl items-center gap-1 shadow-md border border-orange-400" title="ส่งรูปที่ตีเส้นแล้วเข้าสู่ช่องเอกสารในเว็บหลักทันที">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span id="btnSendToMainText" class="truncate max-w-[95px] sm:max-w-none">ส่งเข้าเว็บหลัก</span>
+            </button>
+
+            <!-- ปุ่มแชร์เข้า LINE / อัลบั้มมือถือ / iPad โดยตรง (Web Share API) -->
+            <button onclick="sharePhotosToLineOrMobile()" class="btn-press bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold px-2.5 sm:px-3.5 py-2 rounded-xl flex items-center gap-1 shadow-xs" title="แชร์รูปเข้า LINE หรือบันทึกลงอัลบั้มรูปในมือถือ/iPad">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.3">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+                <span class="hidden md:inline">แชร์ LINE / บันทึกรูป</span>
+                <span class="md:hidden">แชร์/เซฟ</span>
+            </button>
+
+            <!-- ปุ่มเซฟเฉพาะรูปปัจจุบัน -->
+            <button onclick="downloadCurrentPhoto()" class="btn-press bg-slate-800 hover:bg-slate-900 text-white text-xs sm:text-sm font-semibold px-2.5 sm:px-3 py-2 rounded-xl flex items-center gap-1 shadow-xs" title="ดาวน์โหลดเฉพาะรูปนี้">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span class="hidden lg:inline">เซฟรูปนี้</span>
+            </button>
+
+            <!-- ปุ่มโหลดทั้งหมดเป็นไฟล์ .ZIP -->
+            <button id="btnExportZip" onclick="downloadAllZip()" class="btn-press bg-amber-400 hover:bg-amber-500 text-slate-900 text-xs sm:text-sm font-bold px-2 sm:px-3 py-2 rounded-xl flex items-center gap-1 shadow-xs" title="ดาวน์โหลดทั้งหมดเป็นไฟล์ .ZIP">
+                <span>.ZIP</span>
+            </button>
+
+            <!-- ปุ่มสำรองข้อมูล / กู้คืนข้อมูลโปรเจกต์ JSON -->
+            <button onclick="openProjectBackupModal()" class="btn-press bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-bold px-2 sm:px-2.5 py-2 rounded-xl flex items-center gap-1" title="สำรองข้อมูล / กู้คืนข้อมูลงานตีเส้น (JSON)">
+                <span>💾</span>
+                <span class="hidden xl:inline">สำรองงาน</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- 2. แถบรูปภาพขนาดย่อ (Multi-Photo Strip) สำหรับสลับรูปไปมาอย่างรวดเร็ว -->
+    <div class="bg-slate-800/95 border-b border-slate-700/80 px-3 py-1.5 flex items-center justify-between gap-2 shrink-0 z-10">
+        <div id="thumbnailStrip" class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+            <!-- สร้างด้วย JS -->
+        </div>
+
+        <div class="flex items-center gap-1 shrink-0 pl-2 border-l border-slate-700">
+            <button onclick="resetDemoPhotos()" class="btn-press text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-200 px-2.5 py-1.5 rounded-lg font-medium whitespace-nowrap">
+                โหลดภาพตัวอย่างใหม่
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. พื้นที่กระดานวาดเส้น (Main Interactive Canvas Area) -->
+    <main id="canvasViewport" class="relative flex-1 overflow-hidden flex items-center justify-center bg-slate-950 select-none">
+        <!-- ตัวห่อ Canvas ที่รองรับการซูม -->
+        <div id="canvasTransformLayer" class="origin-center transition-transform duration-75 flex items-center justify-center">
+            <canvas id="editorCanvas" class="shadow-2xl touch-none"></canvas>
+        </div>
+
+        <!-- แว่นขยายส่องจุด (Magnifier Loupe 2.5x แก้ปัญหานิ้วบังจุดเวลาเล็งหลักหมุด) -->
+        <div id="magnifierLoupe" class="fixed pointer-events-none z-40 hidden flex-col items-center" style="width: 132px; height: 132px;">
+            <div class="relative w-32 h-32 rounded-full overflow-hidden border-4 border-white shadow-[0_10px_30px_rgba(0,0,0,0.65)] ring-2 ring-red-500 bg-slate-900">
+                <canvas id="loupeCanvas" width="128" height="128" class="w-full h-full block"></canvas>
+                <!-- เป้าเล็งกากบาทตรงกลางแว่นขยาย -->
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="w-full h-[1.5px] bg-red-500/80"></div>
+                </div>
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="h-full w-[1.5px] bg-red-500/80"></div>
+                </div>
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="w-3 h-3 rounded-full border-2 border-red-500 bg-red-500/20"></div>
+                </div>
+                <span class="absolute bottom-1 left-1/2 -translate-x-1/2 bg-slate-900/85 text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full">
+                    2.5x เล็งจุด
+                </span>
+            </div>
+        </div>
+
+        <!-- แถบคำแนะนำสั้นๆ ลอยด้านบนของภาพ (Floating Context Pill) -->
+        <div id="contextGuidePill" class="absolute top-2.5 left-1/2 -translate-x-1/2 max-w-[92vw] truncate bg-slate-900/85 backdrop-blur-md text-white text-[11px] sm:text-xs px-3.5 py-1.5 rounded-full border border-white/15 pointer-events-none whitespace-nowrap shadow-md">
+            แตะค้างหรือลากบนภาพเพื่อส่องแว่นขยายวางจุดหมุด • ถ่าง 2 นิ้วซูมได้
+        </div>
+
+        <!-- ปุ่มควบคุมการซูมภาพ (มุมขวาล่างของกระดาน) กดง่ายบนจอสัมผัส -->
+        <div class="absolute bottom-3 right-3 flex items-center gap-1 bg-slate-900/90 backdrop-blur-md p-1.5 rounded-2xl border border-white/15 shadow-lg">
+            <button onclick="adjustZoom(-0.25)" class="btn-press w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-lg flex items-center justify-center" title="ซูมออก">−</button>
+            <button onclick="resetZoom()" id="zoomLabelBtn" class="btn-press px-2.5 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-extrabold text-slate-200 min-w-[54px]">100%</button>
+            <button onclick="adjustZoom(0.25)" class="btn-press w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-lg flex items-center justify-center" title="ซูมเข้า">+</button>
+        </div>
+    </main>
+
+    <!-- 4. แผงเครื่องมือด้านล่างสำหรับพนักงานสาขา รองรับ iPad & มือถือ (Bottom Ergonomic Toolbar) -->
+    <footer class="safe-footer bg-white text-slate-800 border-t border-slate-200 pt-2 shrink-0 z-20 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+        <div class="max-w-5xl mx-auto flex flex-col gap-2">
+            <!-- แถวบน: ตัวเลือกย่อยตามโหมด + ปุ่มจัดการเส้น -->
+            <div class="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar py-0.5">
+                <!-- ตัวเลือกย่อยเมื่ออยู่ในโหมดตีเส้นหมุด -->
+                <div id="subBarBoundary" class="flex items-center gap-1.5">
+                    <button onclick="startNewBoundarySegment()" class="btn-press bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1 whitespace-nowrap">
+                        <span>+ ขึ้นเส้นใหม่</span>
+                    </button>
+                    <button onclick="toggleClosePolygon()" id="btnToggleLoop" class="btn-press bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl whitespace-nowrap">
+                        เชื่อมปิดกรอบ: เปิด
+                    </button>
+                </div>
+
+                <!-- ตัวเลือกย่อยเมื่ออยู่ในโหมดลูกศรทางเข้า/หลักประกัน -->
+                <div id="subBarArrow" class="hidden items-center gap-1.5">
+                    <span class="text-xs font-bold text-slate-500 mr-0.5">ป้าย:</span>
+                    <button onclick="setArrowPreset('ทางเข้าหลักทรัพย์')" id="presetRoadBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-red-600 text-white whitespace-nowrap">
+                        ทางเข้าหลักทรัพย์
+                    </button>
+                    <button onclick="setArrowPreset('หลักประกัน')" id="presetCollateralBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-slate-100 text-slate-700 whitespace-nowrap">
+                        หลักประกัน
+                    </button>
+                    <button onclick="setArrowPreset('สิ่งปลูกสร้าง (บ้านพักอาศัย)')" id="presetHouseArrowBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-slate-100 text-slate-700 whitespace-nowrap">
+                        ชี้ตัวบ้าน
+                    </button>
+                    <button onclick="setArrowPreset('CUSTOM')" id="presetCustomBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-slate-100 text-slate-700 whitespace-nowrap">
+                        พิมพ์เอง...
+                    </button>
+                    <div class="h-4 w-[1px] bg-slate-300 mx-0.5"></div>
+                    <!-- เลือกสีและรูปแบบลูกศร -->
+                    <button onclick="cycleArrowColor()" id="btnArrowColor" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">
+                        สี: แดง
+                    </button>
+                    <button onclick="cycleArrowLineStyle()" id="btnArrowStyle" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-slate-100 text-slate-700 whitespace-nowrap">
+                        เส้นทึบ
+                    </button>
+                </div>
+
+                <!-- ตัวเลือกย่อยเมื่ออยู่ในโหมดใส่ข้อความอิสระ -->
+                <div id="subBarText" class="hidden items-center gap-1.5">
+                    <span class="text-xs font-bold text-slate-500 mr-0.5 hidden sm:inline">แตะบนภาพเพื่อวางป้าย:</span>
+                    <button onclick="setTextBoxStyle('whiteBox')" id="textStyleWhiteBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-blue-600 text-white whitespace-nowrap">
+                        กล่องขาวขอบมน
+                    </button>
+                    <button onclick="setTextBoxStyle('yellowBadge')" id="textStyleYellowBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-amber-100 text-amber-900 whitespace-nowrap">
+                        ป้ายเหลืองเด่น
+                    </button>
+                    <button onclick="setTextBoxStyle('redTag')" id="textStyleRedBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-red-100 text-red-800 whitespace-nowrap">
+                        ป้ายแดง
+                    </button>
+                    <button onclick="setTextBoxStyle('floatingText')" id="textStyleFloatBtn" class="btn-press text-xs font-bold px-3 py-2 rounded-xl bg-slate-800 text-white whitespace-nowrap">
+                        ตัวหนังสือลอย
+                    </button>
+                </div>
+
+                <!-- ตัวเลือกย่อยเมื่ออยู่ในโหมดคำนวณพื้นที่ดิน & ขนาดบ้าน -->
+                <div id="subBarCalc" class="hidden items-center gap-1.5">
+                    <button onclick="openAreaCalculatorModal()" class="btn-press bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1 whitespace-nowrap shadow-2xs">
+                        <span>📐 เครื่องคำนวณที่ดิน & บ้าน</span>
+                    </button>
+                    <button onclick="startBuildingOutlineTool()" class="btn-press bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-3 py-2 rounded-xl whitespace-nowrap">
+                        <span>🏠 ตีกรอบตัวบ้าน (เส้นเหลือง)</span>
+                    </button>
+                </div>
+
+                <!-- ตัวเลือกย่อยเมื่ออยู่ในโหมดย้าย/แก้ไข -->
+                <div id="subBarMove" class="hidden items-center gap-1.5">
+                    <span class="text-xs text-slate-600 font-medium whitespace-nowrap">💡 ลากหมุดหรือป้ายเพื่อขยับ • แตะ 1 ครั้งเพื่อแก้ไข/ลบ</span>
+                </div>
+
+                <!-- ปุ่มย้อนกลับ (Undo) และล้างเส้น (ขอการยืนยันก่อนลบ) -->
+                <div class="flex items-center gap-1.5 ml-auto shrink-0 pl-1">
+                    <button onclick="undoLastAction()" class="btn-press bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1 whitespace-nowrap">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                        </svg>
+                        <span>ย้อนกลับ</span>
+                    </button>
+                    <button onclick="confirmClearCurrentPhotoMarks()" class="btn-press bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold px-3 py-2 rounded-xl whitespace-nowrap">
+                        ล้างเส้น
+                    </button>
+                </div>
+            </div>
+
+            <!-- แถวล่าง: 5 โหมดหลัก กดง่ายทั้งบน iPad และมือถือ -->
+            <div class="grid grid-cols-5 gap-1.5 sm:gap-2">
+                <button id="toolBtnBoundary" onclick="selectTool('boundary')" class="btn-press py-2.5 px-1 sm:px-2 rounded-2xl font-bold text-[11px] sm:text-xs flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 border-2 border-red-600 bg-red-600 text-white shadow-sm">
+                    <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white text-red-600 font-extrabold text-[10px] sm:text-xs flex items-center justify-center shrink-0">1</span>
+                    <span class="truncate">จุดหมุด/เส้น</span>
+                </button>
+
+                <button id="toolBtnArrow" onclick="selectTool('arrow')" class="btn-press py-2.5 px-1 sm:px-2 rounded-2xl font-bold text-[11px] sm:text-xs flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 border-2 border-slate-200 bg-slate-50 text-slate-700">
+                    <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-slate-200 text-slate-700 font-extrabold text-[10px] sm:text-xs flex items-center justify-center shrink-0">2</span>
+                    <span class="truncate">ลูกศรชี้</span>
+                </button>
+
+                <button id="toolBtnText" onclick="selectTool('text')" class="btn-press py-2.5 px-1 sm:px-2 rounded-2xl font-bold text-[11px] sm:text-xs flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 border-2 border-slate-200 bg-slate-50 text-slate-700">
+                    <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-slate-200 text-slate-700 font-extrabold text-[10px] sm:text-xs flex items-center justify-center shrink-0">3</span>
+                    <span class="truncate">ใส่ข้อความ</span>
+                </button>
+
+                <button id="toolBtnCalc" onclick="selectTool('calc')" class="btn-press py-2.5 px-1 sm:px-2 rounded-2xl font-bold text-[11px] sm:text-xs flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 border-2 border-slate-200 bg-slate-50 text-slate-700">
+                    <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-[10px] sm:text-xs flex items-center justify-center shrink-0">4</span>
+                    <span class="truncate">คำนวณพื้นที่</span>
+                </button>
+
+                <button id="toolBtnMove" onclick="selectTool('move')" class="btn-press py-2.5 px-1 sm:px-2 rounded-2xl font-bold text-[11px] sm:text-xs flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 border-2 border-slate-200 bg-slate-50 text-slate-700">
+                    <span class="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-slate-200 text-slate-700 font-extrabold text-[10px] sm:text-xs flex items-center justify-center shrink-0">5</span>
+                    <span class="truncate">ย้าย/แก้ไข</span>
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 5. หน้าต่างใส่/แก้ไขเลขหลักหมุดและข้อความ (Fast Pin & Text Modal) -->
+    <div id="pinInputModal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white text-slate-800 w-full max-w-md rounded-3xl p-5 shadow-2xl border border-slate-100">
+            <div class="flex items-start justify-between gap-2 mb-2">
+                <div>
+                    <h3 id="modalHeading" class="text-base font-extrabold text-slate-900">ระบุเลขหลักหมุดที่ดิน</h3>
+                    <p id="modalSubtext" class="text-xs text-slate-500">แตะเลขหมุดเดิมด้านล่าง 1 คลิก หรือพิมพ์รหัสใหม่</p>
+                </div>
+                <button id="btnDeleteItemModal" type="button" onclick="deleteSelectedElementFromModal()" class="hidden btn-press bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold px-2.5 py-1.5 rounded-xl shrink-0">
+                    🗑️ ลบรายการนี้
+                </button>
+            </div>
+
+            <!-- ปุ่มจำเลขหมุดในเคสเดียวกัน (1-Tap Case Pin Memory) -->
+            <div id="caseMemoryPinsSection" class="mb-3 bg-emerald-50/90 border border-emerald-200 rounded-2xl p-2.5">
+                <div class="text-[11px] font-extrabold text-emerald-800 mb-1.5 flex items-center justify-between">
+                    <span>⚡ เลขหมุดในเคสนี้ (แตะ 1 คลิกใส่ทันที):</span>
+                </div>
+                <div id="caseMemoryChipsContainer" class="flex flex-wrap gap-1.5">
+                    <!-- สร้างปุ่มอัตโนมัติด้วย JS -->
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <input id="modalTextInput" type="text" placeholder="เช่น 2ค8930" class="w-full px-3.5 py-2.5 text-base font-extrabold bg-slate-50 border-2 border-slate-300 focus:border-blue-600 rounded-2xl outline-hidden text-slate-900">
+            </div>
+
+            <!-- ปุ่มตัวอักษรย่อหมวดหลักหมุดที่พบบ่อยในโฉนดไทย -->
+            <div id="quickPrefixBar" class="mb-4">
+                <div class="text-[11px] font-medium text-slate-400 mb-1.5">ปุ่มขึ้นต้นหมวดหมุดใหม่ (กดแล้วพิมพ์ตัวเลขต่อ):</div>
+                <div class="grid grid-cols-5 gap-1.5">
+                    <button type="button" onclick="insertPrefix('2ค')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs py-2 rounded-xl">2ค</button>
+                    <button type="button" onclick="insertPrefix('1ค')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs py-2 rounded-xl">1ค</button>
+                    <button type="button" onclick="insertPrefix('3ค')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs py-2 rounded-xl">3ค</button>
+                    <button type="button" onclick="insertPrefix('4ค')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs py-2 rounded-xl">4ค</button>
+                    <button type="button" onclick="document.getElementById('modalTextInput').value=''; document.getElementById('modalTextInput').focus();" class="btn-press bg-rose-50 text-rose-600 font-semibold text-xs py-2 rounded-xl">ล้างคำ</button>
+                </div>
+            </div>
+
+            <!-- ปุ่มข้อความสำเร็จรูปสำหรับโหมดใส่ข้อความอิสระ -->
+            <div id="quickTextPresetsBar" class="hidden mb-4">
+                <div class="text-[11px] font-medium text-slate-400 mb-1.5">แตะเลือกข้อความสำเร็จรูป:</div>
+                <div class="flex flex-wrap gap-1.5">
+                    <button type="button" onclick="selectQuickTextPreset('บ้านพักอาศัย 2 ชั้น')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs px-2.5 py-1.5 rounded-xl">บ้านพักอาศัย 2 ชั้น</button>
+                    <button type="button" onclick="selectQuickTextPreset('บ้านเดี่ยว 1 ชั้น')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs px-2.5 py-1.5 rounded-xl">บ้านเดี่ยว 1 ชั้น</button>
+                    <button type="button" onclick="selectQuickTextPreset('ถนนสาธารณะประโยชน์')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs px-2.5 py-1.5 rounded-xl">ถนนสาธารณะประโยชน์</button>
+                    <button type="button" onclick="selectQuickTextPreset('ทางภาระจำยอม')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs px-2.5 py-1.5 rounded-xl">ทางภาระจำยอม</button>
+                    <button type="button" onclick="selectQuickTextPreset('ติดคลองชลประทาน')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs px-2.5 py-1.5 rounded-xl">ติดคลองชลประทาน</button>
+                    <button type="button" onclick="selectQuickTextPreset('แนวเขตเสาไฟฟ้า')" class="btn-press bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold text-xs px-2.5 py-1.5 rounded-xl">แนวเขตเสาไฟฟ้า</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <button type="button" onclick="submitPinModal(false)" class="btn-press py-2.5 px-3 rounded-2xl text-xs sm:text-sm font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700">
+                    ไม่ต้องใส่ป้าย
+                </button>
+                <button type="button" onclick="submitPinModal(true)" class="btn-press py-2.5 px-3 rounded-2xl text-xs sm:text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md">
+                    ตกลงใส่ป้าย
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5.2 หน้าต่างคำนวณพื้นที่ที่ดินและขนาดสิ่งปลูกสร้าง/บ้าน (Land & Building Area Calculator Modal) -->
+    <div id="areaCalcModal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-50 hidden items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div class="bg-white text-slate-800 w-full max-w-lg rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-100 my-auto max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-base">📐</span>
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900">คำนวณพื้นที่ที่ดิน & ขนาดสิ่งปลูกสร้าง</h3>
+                        <p class="text-[11px] text-slate-500">คำนวณอัตโนมัติและสร้างป้ายสรุปวางลงบนรูปเพื่อประกอบสินเชื่อ</p>
+                    </div>
+                </div>
+                <button onclick="closeAreaCalculatorModal()" class="btn-press w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center">✕</button>
+            </div>
+
+            <!-- ส่วนที่ 1: คำนวณเนื้อที่ดิน -->
+            <div class="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-3.5 mb-3.5">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-extrabold text-emerald-900">1. คำนวณเนื้อที่ดิน (โฉนด / วัดระยะ 4 ด้าน)</span>
+                    <div class="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-emerald-200 text-[11px]">
+                        <button type="button" id="landModeDeedBtn" onclick="switchLandCalcMode('deed')" class="px-2 py-0.5 rounded-md font-bold bg-emerald-600 text-white">กรอกไร่-งาน-วา</button>
+                        <button type="button" id="landModeSidesBtn" onclick="switchLandCalcMode('sides')" class="px-2 py-0.5 rounded-md font-bold text-slate-600">วัดระยะ 4 ด้าน (ม.)</button>
+                    </div>
+                </div>
+
+                <!-- โหมดกรอก ไร่ - งาน - ตารางวา -->
+                <div id="landDeedInputs" class="grid grid-cols-3 gap-2 mb-2">
+                    <div>
+                        <label class="text-[11px] font-bold text-slate-600 block mb-1">ไร่</label>
+                        <input type="number" id="calcRai" value="0" min="0" oninput="recalculateAllAreas()" class="w-full px-2.5 py-2 text-sm font-bold bg-white border border-slate-300 rounded-xl text-center">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-bold text-slate-600 block mb-1">งาน</label>
+                        <input type="number" id="calcNgan" value="1" min="0" max="3" oninput="recalculateAllAreas()" class="w-full px-2.5 py-2 text-sm font-bold bg-white border border-slate-300 rounded-xl text-center">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-bold text-slate-600 block mb-1">ตารางวา</label>
+                        <input type="number" id="calcSqWa" value="50" min="0" step="0.1" oninput="recalculateAllAreas()" class="w-full px-2.5 py-2 text-sm font-bold bg-white border border-slate-300 rounded-xl text-center">
+                    </div>
+                </div>
+
+                <!-- โหมดวัดระยะ 4 ด้าน (เมตร) แปลงเป็น ไร่-งาน-ตารางวา อัตโนมัติ -->
+                <div id="landSidesInputs" class="hidden grid-cols-4 gap-1.5 mb-2">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 block mb-1">ทิศเหนือ (ม.)</label>
+                        <input type="number" id="sideNorth" value="20" min="0" step="0.5" oninput="recalculateAllAreas()" class="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl text-center">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 block mb-1">ทิศใต้ (ม.)</label>
+                        <input type="number" id="sideSouth" value="20" min="0" step="0.5" oninput="recalculateAllAreas()" class="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl text-center">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 block mb-1">ทิศตะวันออก (ม.)</label>
+                        <input type="number" id="sideEast" value="30" min="0" step="0.5" oninput="recalculateAllAreas()" class="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl text-center">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-600 block mb-1">ทิศตะวันตก (ม.)</label>
+                        <input type="number" id="sideWest" value="30" min="0" step="0.5" oninput="recalculateAllAreas()" class="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-300 rounded-xl text-center">
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl px-3 py-2 border border-emerald-200 flex items-center justify-between">
+                    <span class="text-xs font-semibold text-slate-600">สรุปเนื้อที่ดิน:</span>
+                    <span id="landResultSummary" class="text-xs sm:text-sm font-extrabold text-emerald-700">0 ไร่ 1 งาน 50 ตร.ว. (600 ตร.ม.)</span>
+                </div>
+            </div>
+
+            <!-- ส่วนที่ 2: คำนวณขนาดสิ่งปลูกสร้าง / บ้านพักอาศัย -->
+            <div class="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-extrabold text-amber-900">2. คำนวณขนาดบ้าน / สิ่งปลูกสร้างในที่ดิน</span>
+                    <label class="flex items-center gap-1.5 text-xs font-bold text-amber-900 cursor-pointer">
+                        <input type="checkbox" id="hasBuildingToggle" checked onchange="recalculateAllAreas()" class="rounded text-amber-600 focus:ring-0">
+                        <span>มีสิ่งปลูกสร้าง</span>
+                    </label>
+                </div>
+
+                <div id="buildingInputsWrap">
+                    <div class="mb-2">
+                        <label class="text-[11px] font-bold text-slate-600 block mb-1">ประเภทสิ่งปลูกสร้าง</label>
+                        <select id="buildingTypeSelect" onchange="recalculateAllAreas()" class="w-full px-3 py-2 text-xs sm:text-sm font-bold bg-white border border-slate-300 rounded-xl">
+                            <option value="บ้านพักอาศัยตึก 1 ชั้น">บ้านพักอาศัยตึก 1 ชั้น</option>
+                            <option value="บ้านพักอาศัยตึก 2 ชั้น" selected>บ้านพักอาศัยตึก 2 ชั้น</option>
+                            <option value="บ้านพักอาศัยครึ่งตึกครึ่งไม้ 2 ชั้น">บ้านพักอาศัยครึ่งตึกครึ่งไม้ 2 ชั้น</option>
+                            <option value="บ้านพักอาศัยไม้ 1 ชั้น">บ้านพักอาศัยไม้ 1 ชั้น</option>
+                            <option value="อาคารพาณิชย์ / โกดังเก็บสินค้า">อาคารพาณิชย์ / โกดังเก็บสินค้า</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-2 mb-2">
+                        <div>
+                            <label class="text-[11px] font-bold text-slate-600 block mb-1">หน้ากว้าง (เมตร)</label>
+                            <input type="number" id="houseWidthM" value="8" min="1" step="0.5" oninput="recalculateAllAreas()" class="w-full px-2.5 py-2 text-sm font-bold bg-white border border-slate-300 rounded-xl text-center">
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-bold text-slate-600 block mb-1">ความลึก/ยาว (เมตร)</label>
+                            <input type="number" id="houseLengthM" value="10" min="1" step="0.5" oninput="recalculateAllAreas()" class="w-full px-2.5 py-2 text-sm font-bold bg-white border border-slate-300 rounded-xl text-center">
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-bold text-slate-600 block mb-1">จำนวนชั้น</label>
+                            <input type="number" id="houseFloors" value="2" min="1" max="10" step="1" oninput="recalculateAllAreas()" class="w-full px-2.5 py-2 text-sm font-bold bg-white border border-slate-300 rounded-xl text-center">
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl px-3 py-2 border border-amber-200 flex items-center justify-between">
+                        <span class="text-xs font-semibold text-slate-600">พื้นที่ใช้สอยรวม:</span>
+                        <span id="buildingResultSummary" class="text-xs sm:text-sm font-extrabold text-amber-700">8 × 10 ม. (2 ชั้น) = 160 ตร.ม.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ปุ่มกดวางป้ายสรุปลงบนรูปภาพ -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button type="button" onclick="insertHouseCalloutPin()" class="btn-press py-2.5 px-3 rounded-2xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 flex items-center justify-center gap-1.5 shadow-sm">
+                    <span>🏠 วางป้ายชี้ขนาดบ้านบนรูป</span>
+                </button>
+                <button type="button" onclick="insertSummaryStampToPhoto()" class="btn-press py-2.5 px-3 rounded-2xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1.5 shadow-md">
+                    <span>✅ วางป้ายสรุปที่ดิน & บ้านลงบนรูป</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5.3 หน้าต่างยืนยันก่อนล้างเส้น (Confirmation Modal สำหรับ iPad / มือถือ) -->
+    <div id="confirmClearModal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white text-slate-800 w-full max-w-sm rounded-3xl p-5 shadow-2xl border border-slate-100 text-center">
+            <div class="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center text-2xl mx-auto mb-3">
+                🗑️
+            </div>
+            <h3 class="text-base font-extrabold text-slate-900 mb-1">ยืนยันการล้างเส้นทั้งหมดในรูปนี้?</h3>
+            <p class="text-xs text-slate-500 mb-4">เส้นขอบเขต จุดหมุด ลูกศร และข้อความบนรูปนี้จะถูกลบออก (ยังสามารถกดปุ่ม "ย้อนกลับ" เพื่อกู้คืนได้)</p>
+            <div class="grid grid-cols-2 gap-2">
+                <button type="button" onclick="closeConfirmClearModal()" class="btn-press py-2.5 px-3 rounded-2xl text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700">
+                    ยกเลิก
+                </button>
+                <button type="button" onclick="executeClearCurrentPhotoMarks()" class="btn-press py-2.5 px-3 rounded-2xl text-xs sm:text-sm font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-md">
+                    ยืนยันล้างเส้น
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5.4 หน้าต่างสำรองข้อมูล / กู้คืนข้อมูลงานตีเส้น (Export / Import JSON Backup Modal) -->
+    <div id="projectBackupModal" class="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white text-slate-800 w-full max-w-md rounded-3xl p-5 shadow-2xl border border-slate-100">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-base">💾</span>
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900">สำรองและกู้คืนข้อมูลงานตีเส้น</h3>
+                        <p class="text-[11px] text-slate-500">บันทึกงานเก็บไว้ทำต่อ หรือย้ายงานระหว่าง iPad • มือถือ • คอม</p>
+                    </div>
+                </div>
+                <button onclick="closeProjectBackupModal()" class="btn-press w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center">✕</button>
+            </div>
+
+            <div class="space-y-2.5 mb-4">
+                <button type="button" onclick="exportProjectJson()" class="w-full btn-press py-3 px-4 rounded-2xl text-xs sm:text-sm font-extrabold bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-between shadow-sm">
+                    <span class="flex items-center gap-2">
+                        <span>📤</span>
+                        <span>สำรองข้อมูล (Export JSON)</span>
+                    </span>
+                    <span class="text-[11px] font-normal bg-white/20 px-2 py-0.5 rounded-lg">ดาวน์โหลดไฟล์</span>
+                </button>
+
+                <label for="importJsonInput" class="w-full btn-press cursor-pointer py-3 px-4 rounded-2xl text-xs sm:text-sm font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-between shadow-sm">
+                    <span class="flex items-center gap-2">
+                        <span>📥</span>
+                        <span>กู้คืนข้อมูล (Import JSON)</span>
+                    </span>
+                    <span class="text-[11px] font-normal bg-white/20 px-2 py-0.5 rounded-lg">เลือกไฟล์ .json</span>
+                </label>
+                <input id="importJsonInput" type="file" accept=".json,application/json" class="hidden" onchange="importProjectJson(event)">
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-[11px] text-slate-600 leading-relaxed">
+                💡 <b>ระบบบันทึกอัตโนมัติ:</b> ทุกครั้งที่คุณวางหมุดหรือตีเส้น ระบบจะจำเลขหมุดไว้ในเครื่องอัตโนมัติ และคุณสามารถส่งออกไฟล์ JSON เพื่อเก็บสำรองไว้เปิดแก้ไขใหม่ได้ตลอดเวลา
+            </div>
+        </div>
+    </div>
+
+    <!-- 5.5 หน้าต่างบันทึกภาพสำหรับ iPad / iPhone กรณีต้องการแตะค้างเพื่อบันทึกลงแอปรูปภาพ -->
+    <div id="iosImagePreviewModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+        <div class="bg-white text-slate-800 w-full max-w-lg rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-100 flex flex-col items-center">
+            <div class="w-full flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-100">
+                <div>
+                    <h3 class="text-sm sm:text-base font-extrabold text-slate-900">📲 บันทึกรูปลง iPad / มือถือ</h3>
+                    <p class="text-[11px] text-emerald-700 font-bold">แตะค้างที่รูปภาพด้านล่าง แล้วเลือก "บันทึกรูปภาพ" (Save to Photos)</p>
+                </div>
+                <button onclick="closeIosImagePreviewModal()" class="btn-press w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center">✕</button>
+            </div>
+            <div class="w-full max-h-[65vh] overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 flex items-center justify-center">
+                <img id="iosPreviewImgTag" src="" alt="รูปที่ตีเส้นแล้ว" class="max-w-full max-h-[62vh] object-contain select-auto" style="-webkit-touch-callout: default !important; user-select: auto !important;">
+            </div>
+            <div class="w-full grid grid-cols-2 gap-2 mt-3">
+                <button type="button" onclick="sharePhotosToLineOrMobile()" class="btn-press py-2.5 px-3 rounded-2xl text-xs font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white">
+                    แชร์เข้า LINE / แอปอื่น
+                </button>
+                <button type="button" onclick="closeIosImagePreviewModal()" class="btn-press py-2.5 px-3 rounded-2xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700">
+                    ปิดหน้าต่าง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. กล่องแจ้งเตือน (Toast Notification) -->
+    <div id="toastBanner" class="fixed top-14 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-all duration-200">
+        <div class="bg-slate-900/95 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-2xl shadow-xl border border-white/15 flex items-center gap-2">
+            <span id="toastIcon">✅</span>
+            <span id="toastMessage">บันทึกสำเร็จ</span>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ระบบตีเส้นที่ดินและปักหลักหมุดสำหรับภาพที่ถ่ายจากกล้อง GPS แล้ว
+         * รองรับ:
+         * 1. แว่นขยายส่องจุด 2.5x แก้ปัญหานิ้วบังจุดเวลาเล็งหลักหมุด (Magnifier Loupe)
+         * 2. จำเลขหมุดอัตโนมัติข้ามรูปในเคสเดียวกัน กดเลือกได้ใน 1 คลิก (Case Pin Memory)
+         * 3. แชร์รูปเข้า LINE / มือถือโดยตรงผ่าน Web Share API (Direct Mobile Share)
+         */
+
+        const canvas = document.getElementById('editorCanvas');
+        const ctx = canvas.getContext('2d');
+        const loupeEl = document.getElementById('magnifierLoupe');
+        const loupeCanvas = document.getElementById('loupeCanvas');
+        const loupeCtx = loupeCanvas.getContext('2d');
+
+        let photoItems = [];
+        let activeIndex = -1;
+
+        // สถานะเครื่องมือปัจจุบัน
+        let currentTool = 'boundary'; // 'boundary' | 'arrow' | 'text' | 'calc' | 'move'
+        let currentArrowPreset = 'ทางเข้าหลักทรัพย์';
+        let currentArrowColor = '#ff1e00'; // แดงมาตรฐาน, เหลือง, น้ำเงิน
+        let currentArrowStyle = 'solid';   // 'solid' | 'dashed' | 'double'
+        let currentTextBoxStyle = 'whiteBox'; // 'whiteBox' | 'yellowBadge' | 'redTag' | 'floatingText'
+        let currentBoundaryColor = '#ff1e00'; // '#ff1e00' (ที่ดิน) หรือ '#facc15' (ตัวบ้าน)
+        let landCalcMode = 'deed'; // 'deed' | 'sides'
+        let pendingArrowStart = null;
+        let lastUsedPrefix = '2ค';
+
+        // รายการเลขหลักหมุดที่จำไว้ใช้ข้ามรูปในเคสเดียวกัน
+        let sessionPinMemory = ['2ค8930', '2ค8963', '2ค8284', '2ค9824'];
+
+        // สถานะการซูมและลากแก้ไข + การเล็งวางจุดด้วยแว่นขยาย + ถ่าง 2 นิ้วซูมและเลื่อนบน iPad/มือถือ
+        let zoomScale = 1.0;
+        let panOffsetX = 0;
+        let panOffsetY = 0;
+        let pinchStartDist = 0;
+        let pinchStartZoom = 1.0;
+        let pinchStartPanX = 0;
+        let pinchStartPanY = 0;
+        let pinchStartMidX = 0;
+        let pinchStartMidY = 0;
+        let isPinchGesture = false;
+        let draggingInfo = null;
+        let aimingNewPinPos = null;
+        let pointerDownPos = null;
+        let hasMovedDuringDrag = false;
+
+        // Callback สำหรับ Modal
+        let onModalSubmit = null;
+        let onModalDelete = null;
+
+        // สถานะการเชื่อมต่อกับเว็บหลัก (Chaiyo Document Studio)
+        let parentTargetSlotCode = null;
+        let parentTargetSlotName = null;
+
+        // --- 1. เริ่มต้นระบบพร้อมภาพตัวอย่างจำลองที่ติดลายน้ำ GPS แล้ว ---
+        window.onload = function () {
+            setupCanvasEvents();
+            window.addEventListener('resize', () => {
+                fitCanvasToViewport();
+                renderCanvas();
+            });
+            window.addEventListener('orientationchange', () => {
+                setTimeout(() => {
+                    fitCanvasToViewport();
+                    renderCanvas();
+                }, 150);
+            });
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', () => {
+                    fitCanvasToViewport();
+                    renderCanvas();
+                });
+            }
+
+            // โหลดรายการเลขหลักหมุดที่เคยบันทึกไว้ในเครื่อง (LocalStorage)
+            try {
+                const savedPins = localStorage.getItem('smart_land_pin_memory_v1');
+                if (savedPins) {
+                    const parsed = JSON.parse(savedPins);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        sessionPinMemory = parsed;
+                    }
+                }
+            } catch (e) {}
+
+            document.getElementById('modalTextInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submitPinModal(true);
+                }
+            });
+
+            // ตรวจสอบว่าเปิดอยู่ใน iframe ของเว็บหลักหรือไม่
+            if (window.parent && window.parent !== window) {
+                const sendBtn = document.getElementById('btnSendToMainChecklist');
+                if (sendBtn) {
+                    sendBtn.classList.remove('hidden');
+                    sendBtn.classList.add('flex');
+                }
+            }
+
+            // รับรูปภาพและคำสั่งจากเว็บหลักผ่าน postMessage
+            window.addEventListener('message', (event) => {
+                if (!event.data) return;
+                if (event.data.action === 'loadPhotosFromMainApp') {
+                    parentTargetSlotCode = event.data.slotCode || 'B36';
+                    parentTargetSlotName = event.data.slotName || 'รูปหลักประกัน';
+                    const btnText = document.getElementById('btnSendToMainText');
+                    if (btnText) {
+                        btnText.textContent = `แนบเข้า [${parentTargetSlotCode}]`;
+                    }
+                    if (Array.isArray(event.data.photos) && event.data.photos.length > 0) {
+                        loadPhotosFromDataUrlList(event.data.photos);
+                    }
+                } else if (event.data.action === 'setTargetSlotFromMainApp') {
+                    parentTargetSlotCode = event.data.slotCode || 'B36';
+                    parentTargetSlotName = event.data.slotName || 'รูปหลักประกัน';
+                    const btnText = document.getElementById('btnSendToMainText');
+                    if (btnText) {
+                        btnText.textContent = `แนบเข้า [${parentTargetSlotCode}]`;
+                    }
+                }
+            });
+
+            resetDemoPhotos();
+        };
+
+        function loadPhotosFromDataUrlList(photosList) {
+            photoItems = [];
+            let loadedCount = 0;
+            photosList.forEach((pItem, idx) => {
+                const img = new Image();
+                img.onload = () => {
+                    photoItems.push({
+                        id: 'main-photo-' + Date.now() + '-' + idx,
+                        name: (pItem.name || `รูปที่_${idx + 1}`).replace(/\.[^/.]+$/, ''),
+                        img: img,
+                        polylines: [{ points: [], closed: true, color: '#ff1e00' }],
+                        arrows: [],
+                        textAnnotations: [],
+                        history: []
+                    });
+                    loadedCount++;
+                    if (loadedCount === photosList.length) {
+                        selectPhoto(0);
+                        showToast(`ดึงรูปภาพจากช่อง [${parentTargetSlotCode}] จำนวน ${photosList.length} รูปมาพร้อมตีเส้นแล้ว`, '📌');
+                    }
+                };
+                img.src = pItem.dataUrl;
+            });
+        }
+
+        function sendPhotosToMainApp() {
+            if (photoItems.length === 0) return;
+
+            const isDemoOnly = photoItems.length === 2 && photoItems[0].id === 'demo-1' && photoItems[1].id === 'demo-2';
+            const editedPhotos = photoItems.filter(p => isPhotoEdited(p));
+            const targetList = (!isDemoOnly && photoItems.length > 0)
+                ? photoItems
+                : (editedPhotos.length > 0 ? editedPhotos : [getActivePhoto()]);
+
+            const exportedPhotos = targetList.map((item, idx) => ({
+                name: `${item.name}_ตีเส้นแล้ว.jpg`,
+                dataUrl: renderPhotoToDataURL(item)
+            }));
+
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage({
+                    action: 'attachLandMarkerPhotos',
+                    slotCode: parentTargetSlotCode || 'B36',
+                    photos: exportedPhotos
+                }, '*');
+                showToast(`ส่งรูปที่ตีเส้นแล้ว ${exportedPhotos.length} ใบเข้าเว็บหลักเรียบร้อย!`, '✅');
+            } else {
+                downloadCurrentPhoto();
+            }
+        }
+
+        // สร้างภาพจำลองที่มีเข็มทิศและลายน้ำ GPS ติดมาในตัวรูปแล้ว (เหมือนถ่ายมาจากแอปกล้อง GPS)
+        function createPreWatermarkedDemoImage(sceneType) {
+            const c = document.createElement('canvas');
+            c.width = 1280;
+            c.height = 960;
+            const g = c.getContext('2d');
+
+            // ท้องฟ้า
+            const sky = g.createLinearGradient(0, 0, 0, 440);
+            sky.addColorStop(0, '#4f86c6');
+            sky.addColorStop(1, '#cbe0f5');
+            g.fillStyle = sky;
+            g.fillRect(0, 0, c.width, 440);
+
+            // แนวไม้ขอบฟ้า
+            g.fillStyle = '#2d4c1e';
+            for (let x = 0; x < c.width; x += 45) {
+                g.beginPath();
+                g.arc(x, 435, 22 + (x % 18), 0, Math.PI * 2);
+                g.fill();
+            }
+
+            // พื้นแปลงเกษตรและถนน
+            const land = g.createLinearGradient(0, 440, 0, c.height);
+            land.addColorStop(0, '#4d7c2b');
+            land.addColorStop(1, '#2f5218');
+            g.fillStyle = land;
+            g.fillRect(0, 440, c.width, c.height - 440);
+
+            if (sceneType === 1) {
+                // ถนนลาดยางด้านขวา
+                g.fillStyle = '#64748b';
+                g.beginPath();
+                g.moveTo(920, 440);
+                g.lineTo(1280, 440);
+                g.lineTo(1280, 960);
+                g.lineTo(320, 960);
+                g.closePath();
+                g.fill();
+
+                // เสาไฟข้างแปลง
+                g.fillStyle = '#d6d3d1';
+                g.fillRect(965, 210, 14, 360);
+            } else {
+                // ถนนผ่ากลางสำหรับรูปทางเข้าหลักทรัพย์
+                g.fillStyle = '#64748b';
+                g.beginPath();
+                g.moveTo(640, 440);
+                g.lineTo(790, 440);
+                g.lineTo(1120, 960);
+                g.lineTo(110, 960);
+                g.closePath();
+                g.fill();
+
+                // เสาไฟฟ้าซ้ายมือ
+                g.fillStyle = '#d6d3d1';
+                g.fillRect(105, 40, 28, 520);
+            }
+
+            // วาดเข็มทิศจำลองที่ติดมากับรูปถ่ายมุมซ้ายบน
+            g.save();
+            g.translate(105, 105);
+            g.beginPath();
+            g.arc(0, 0, 82, 0, Math.PI * 2);
+            g.strokeStyle = 'rgba(75, 85, 99, 0.85)';
+            g.lineWidth = 18;
+            g.stroke();
+            g.fillStyle = '#38bdf8';
+            g.beginPath();
+            g.moveTo(0, -55);
+            g.lineTo(11, 35);
+            g.lineTo(-11, 35);
+            g.closePath();
+            g.fill();
+            g.restore();
+
+            // วาดลายน้ำพิกัดจำลองที่ติดมากับรูปถ่ายมุมขวาล่าง
+            g.save();
+            g.font = 'bold 34px Sarabun, sans-serif';
+            g.fillStyle = '#ffffff';
+            g.textAlign = 'right';
+            g.shadowColor = 'rgba(0,0,0,0.75)';
+            g.shadowBlur = 6;
+            const lines = sceneType === 1
+                ? ['6 ต.ค. 2026 17:33:12', '14.00601N 99.67047E', '90° E', 'ตำบล ทุ่งทอง', 'อำเภอท่าม่วง', 'กาญจนบุรี']
+                : ['6 ต.ค. 2026 17:35:24', '14.00616N 99.67022E', '118° SE', 'ตำบล ทุ่งทอง', 'อำเภอท่าม่วง', 'กาญจนบุรี'];
+            let y = 695;
+            lines.forEach(line => {
+                g.fillText(line, 1255, y);
+                y += 46;
+            });
+            g.restore();
+
+            return c.toDataURL('image/jpeg', 0.92);
+        }
+
+        function resetDemoPhotos() {
+            photoItems = [];
+            const demo1Url = createPreWatermarkedDemoImage(1);
+            const demo2Url = createPreWatermarkedDemoImage(2);
+
+            const img1 = new Image();
+            img1.onload = () => {
+                photoItems.push({
+                    id: 'demo-1',
+                    name: 'มุมที่1_หลักหมุดหน้าแปลง.jpg',
+                    img: img1,
+                    polylines: [
+                        {
+                            closed: true,
+                            color: '#ff1e00',
+                            points: [
+                                { x: 0.03, y: 0.55, pinCode: '2ค8963', labelOffsetX: 0.02, labelOffsetY: -0.11 },
+                                { x: 0.61, y: 0.54, pinCode: '2ค8284', labelOffsetX: 0, labelOffsetY: -0.11 },
+                                { x: 0.96, y: 0.54, pinCode: '2ค9824', labelOffsetX: -0.02, labelOffsetY: -0.11 },
+                                { x: 0.73, y: 0.59, pinCode: '2ค8930', labelOffsetX: 0, labelOffsetY: -0.11 }
+                            ]
+                        }
+                    ],
+                    arrows: [],
+                    textAnnotations: [],
+                    history: []
+                });
+
+                const img2 = new Image();
+                img2.onload = () => {
+                    photoItems.push({
+                        id: 'demo-2',
+                        name: 'มุมที่2_ทางเข้าหลักทรัพย์.jpg',
+                        img: img2,
+                        polylines: [
+                            {
+                                closed: false,
+                                color: '#ff1e00',
+                                points: [
+                                    { x: 0.02, y: 0.49, pinCode: '', labelOffsetX: 0, labelOffsetY: -0.11 },
+                                    { x: 0.51, y: 0.46, pinCode: '2ค8930', labelOffsetX: 0, labelOffsetY: -0.10 },
+                                    { x: 0.57, y: 0.43, pinCode: '', labelOffsetX: 0, labelOffsetY: -0.11 }
+                                ]
+                            }
+                        ],
+                        arrows: [
+                            {
+                                startX: 0.48,
+                                startY: 0.96,
+                                endX: 0.58,
+                                endY: 0.44,
+                                text: 'ทางเข้าหลักทรัพย์',
+                                labelX: 0.43,
+                                labelY: 0.60,
+                                color: '#ff1e00',
+                                style: 'solid'
+                            },
+                            {
+                                startX: 0.38,
+                                startY: 0.25,
+                                endX: 0.385,
+                                endY: 0.41,
+                                text: 'หลักประกัน',
+                                labelX: 0.38,
+                                labelY: 0.21,
+                                color: '#ff1e00',
+                                style: 'solid'
+                            }
+                        ],
+                        textAnnotations: [],
+                        history: []
+                    });
+
+                    selectPhoto(0);
+                };
+                img2.src = demo2Url;
+            };
+            img1.src = demo1Url;
+        }
+
+        // --- 2. อัปโหลดรูปจริงหลายใบพร้อมกัน (Batch Upload) ---
+        function handleFilesSelected(event) {
+            const files = Array.from(event.target.files || []);
+            if (files.length === 0) return;
+
+            // ถ้ารายการเดิมเป็นแค่รูป Demo ให้ล้างออกก่อนเพื่อใส่รูปงานจริงของพนักงาน
+            if (photoItems.length === 2 && photoItems[0].id === 'demo-1' && photoItems[1].id === 'demo-2') {
+                photoItems = [];
+            }
+
+            let loadedCount = 0;
+            const startIndex = photoItems.length;
+
+            files.forEach((file, idx) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        photoItems.push({
+                            id: 'photo-' + Date.now() + '-' + idx,
+                            name: file.name.replace(/\.[^/.]+$/, ''),
+                            img: img,
+                            polylines: [{ points: [], closed: true, color: '#ff1e00' }],
+                            arrows: [],
+                            textAnnotations: [],
+                            history: []
+                        });
+                        loadedCount++;
+                        if (loadedCount === files.length) {
+                            selectPhoto(startIndex);
+                            showToast(`โหลดรูปที่ดิน ${files.length} ใบเรียบร้อย`, '📸');
+                        }
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+
+            event.target.value = '';
+        }
+
+        function selectPhoto(index) {
+            if (index < 0 || index >= photoItems.length) return;
+            activeIndex = index;
+            pendingArrowStart = null;
+            aimingNewPinPos = null;
+            draggingInfo = null;
+            resetZoom();
+
+            const current = getActivePhoto();
+            canvas.width = current.img.width;
+            canvas.height = current.img.height;
+
+            fitCanvasToViewport();
+            renderThumbnailStrip();
+            updateToolbarUI();
+            renderCanvas();
+        }
+
+        function getActivePhoto() {
+            return photoItems[activeIndex] || null;
+        }
+
+        function isPhotoEdited(photo) {
+            const hasPoints = photo.polylines.some(poly => poly.points.length > 0);
+            const hasArrows = photo.arrows.length > 0;
+            const hasTexts = (photo.textAnnotations || []).length > 0;
+            return hasPoints || hasArrows || hasTexts;
+        }
+
+        function renderThumbnailStrip() {
+            const strip = document.getElementById('thumbnailStrip');
+            strip.innerHTML = '';
+
+            let editedTotal = 0;
+            photoItems.forEach((item, idx) => {
+                const edited = isPhotoEdited(item);
+                if (edited) editedTotal++;
+
+                const btn = document.createElement('button');
+                const isSelected = idx === activeIndex;
+                btn.className = `btn-press relative group flex items-center gap-2 px-2 py-1 rounded-xl border transition-all shrink-0 ${
+                    isSelected
+                        ? 'bg-red-600/20 border-red-500 text-white shadow-sm'
+                        : 'bg-slate-900/70 border-slate-700 text-slate-300 hover:bg-slate-700'
+                }`;
+                btn.onclick = () => selectPhoto(idx);
+
+                const thumbImg = document.createElement('img');
+                thumbImg.src = item.img.src;
+                thumbImg.className = 'w-9 h-7 object-cover rounded-lg border border-white/15 shrink-0';
+
+                const labelWrap = document.createElement('div');
+                labelWrap.className = 'text-left pr-1';
+                labelWrap.innerHTML = `
+                    <div class="text-[11px] font-bold leading-tight flex items-center gap-1">
+                        <span>รูปที่ ${idx + 1}</span>
+                        ${edited ? '<span class="text-emerald-400" title="ตีเส้นแล้ว">●</span>' : ''}
+                    </div>
+                    <div class="text-[10px] text-slate-400 max-w-[75px] truncate">${item.name}</div>
+                `;
+
+                btn.appendChild(thumbImg);
+                btn.appendChild(labelWrap);
+                strip.appendChild(btn);
+            });
+
+            document.getElementById('photoCounterText').textContent =
+                `ทั้งหมด ${photoItems.length} รูป • ตีเส้นแล้ว ${editedTotal}/${photoItems.length} รูป`;
+        }
+
+        // --- 3. การจัดการขนาดหน้าจอและซูมภาพ (Viewport & Zoom) ---
+        function fitCanvasToViewport() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+
+            const viewport = document.getElementById('canvasViewport');
+            const vw = viewport.clientWidth - 16;
+            const vh = viewport.clientHeight - 16;
+            const imgRatio = photo.img.width / photo.img.height;
+            const viewRatio = vw / vh;
+
+            let displayW, displayH;
+            if (imgRatio > viewRatio) {
+                displayW = vw;
+                displayH = vw / imgRatio;
+            } else {
+                displayH = vh;
+                displayW = vh * imgRatio;
+            }
+
+            canvas.style.width = `${Math.max(200, Math.floor(displayW))}px`;
+            canvas.style.height = `${Math.max(150, Math.floor(displayH))}px`;
+        }
+
+        function adjustZoom(delta) {
+            zoomScale = Math.min(3.5, Math.max(0.75, +(zoomScale + delta).toFixed(2)));
+            if (zoomScale <= 1.0) {
+                panOffsetX = 0;
+                panOffsetY = 0;
+            }
+            applyZoomTransform();
+        }
+
+        function resetZoom() {
+            zoomScale = 1.0;
+            panOffsetX = 0;
+            panOffsetY = 0;
+            applyZoomTransform();
+        }
+
+        function applyZoomTransform() {
+            const layer = document.getElementById('canvasTransformLayer');
+            layer.style.transform = `translate3d(${panOffsetX}px, ${panOffsetY}px, 0) scale(${zoomScale})`;
+            document.getElementById('zoomLabelBtn').textContent = `${Math.round(zoomScale * 100)}%`;
+        }
+
+        // --- 4. ระบบสลับโหมดเครื่องมือ (1-Tap Ergonomic Tools) ---
+        function selectTool(tool) {
+            currentTool = tool;
+            pendingArrowStart = null;
+            aimingNewPinPos = null;
+            if (tool === 'boundary') {
+                currentBoundaryColor = '#ff1e00';
+            }
+            hideMagnifierLoupe();
+            updateToolbarUI();
+            renderCanvas();
+        }
+
+        function updateToolbarUI() {
+            const btnBoundary = document.getElementById('toolBtnBoundary');
+            const btnArrow = document.getElementById('toolBtnArrow');
+            const btnText = document.getElementById('toolBtnText');
+            const btnCalc = document.getElementById('toolBtnCalc');
+            const btnMove = document.getElementById('toolBtnMove');
+
+            const activeClass = 'btn-press py-2.5 px-1 sm:px-2 rounded-2xl font-bold text-[11px] sm:text-xs flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 border-2 border-red-600 bg-red-600 text-white shadow-sm';
+            const inactiveClass = 'btn-press py-2.5 px-1 sm:px-2 rounded-2xl font-bold text-[11px] sm:text-xs flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 border-2 border-slate-200 bg-slate-50 text-slate-700';
+
+            btnBoundary.className = currentTool === 'boundary' ? activeClass : inactiveClass;
+            btnArrow.className = currentTool === 'arrow' ? activeClass : inactiveClass;
+            btnText.className = currentTool === 'text' ? activeClass : inactiveClass;
+            btnCalc.className = currentTool === 'calc' ? activeClass : inactiveClass;
+            btnMove.className = currentTool === 'move' ? activeClass : inactiveClass;
+
+            document.getElementById('subBarBoundary').className = currentTool === 'boundary' ? 'flex items-center gap-1.5' : 'hidden';
+            document.getElementById('subBarArrow').className = currentTool === 'arrow' ? 'flex items-center gap-1.5' : 'hidden';
+            document.getElementById('subBarText').className = currentTool === 'text' ? 'flex items-center gap-1.5' : 'hidden';
+            document.getElementById('subBarCalc').className = currentTool === 'calc' ? 'flex items-center gap-1.5' : 'hidden';
+            document.getElementById('subBarMove').className = currentTool === 'move' ? 'flex items-center gap-1.5' : 'hidden';
+
+            const guide = document.getElementById('contextGuidePill');
+            if (currentTool === 'boundary') {
+                guide.textContent = currentBoundaryColor === '#facc15'
+                    ? '🏠 โหมดตีกรอบตัวบ้าน (เส้นเหลือง): แตะมุมตัวบ้านบนภาพ'
+                    : 'แตะหรือลากนิ้วเพื่อส่องแว่นขยายเล็งจุดหมุด • ถ่าง 2 นิ้วซูมได้';
+                const photo = getActivePhoto();
+                if (photo && photo.polylines.length > 0) {
+                    const activePoly = photo.polylines[photo.polylines.length - 1];
+                    document.getElementById('btnToggleLoop').textContent = `เชื่อมปิดกรอบ: ${activePoly.closed ? 'เปิด' : 'ปิด'}`;
+                }
+            } else if (currentTool === 'arrow') {
+                guide.textContent = 'แตะจุดเริ่มต้นถนน/ทางเข้า แล้วลากไปยังปลายลูกศร';
+            } else if (currentTool === 'text') {
+                guide.textContent = 'แตะจุดที่ต้องการบนภาพเพื่อวางป้ายข้อความอธิบายเพิ่มเติม';
+            } else if (currentTool === 'calc') {
+                guide.textContent = 'กดปุ่ม "เครื่องคำนวณที่ดิน & บ้าน" ด้านล่างเพื่อสร้างป้ายสรุปพื้นที่';
+            } else {
+                guide.textContent = 'ลากจุดแดง/ป้ายข้อความ/ป้ายพื้นที่เพื่อปรับตำแหน่ง • แตะที่ป้ายเพื่อแก้ไข';
+            }
+        }
+
+        function setArrowPreset(preset) {
+            currentArrowPreset = preset;
+            const roadBtn = document.getElementById('presetRoadBtn');
+            const colBtn = document.getElementById('presetCollateralBtn');
+            const houseBtn = document.getElementById('presetHouseArrowBtn');
+            const cusBtn = document.getElementById('presetCustomBtn');
+
+            const onStyle = 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-red-600 text-white whitespace-nowrap';
+            const offStyle = 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 whitespace-nowrap';
+
+            roadBtn.className = preset === 'ทางเข้าหลักทรัพย์' ? onStyle : offStyle;
+            colBtn.className = preset === 'หลักประกัน' ? onStyle : offStyle;
+            houseBtn.className = preset === 'สิ่งปลูกสร้าง (บ้านพักอาศัย)' ? onStyle : offStyle;
+            cusBtn.className = preset === 'CUSTOM' ? onStyle : offStyle;
+        }
+
+        function cycleArrowColor() {
+            const colors = [
+                { hex: '#ff1e00', name: 'สี: แดง', cls: 'bg-red-50 text-red-700 border-red-200' },
+                { hex: '#facc15', name: 'สี: เหลืองเด่น', cls: 'bg-amber-50 text-amber-800 border-amber-300' },
+                { hex: '#0ea5e9', name: 'สี: ฟ้า', cls: 'bg-sky-50 text-sky-700 border-sky-200' }
+            ];
+            const idx = (colors.findIndex(c => c.hex === currentArrowColor) + 1) % colors.length;
+            currentArrowColor = colors[idx].hex;
+            const btn = document.getElementById('btnArrowColor');
+            btn.textContent = colors[idx].name;
+            btn.className = `btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl border whitespace-nowrap ${colors[idx].cls}`;
+        }
+
+        function cycleArrowLineStyle() {
+            const styles = [
+                { id: 'solid', label: 'เส้นทึบ' },
+                { id: 'dashed', label: 'เส้นประนำสายตา' },
+                { id: 'double', label: 'ลูกศรวัดระยะ 2 หัว' }
+            ];
+            const idx = (styles.findIndex(s => s.id === currentArrowStyle) + 1) % styles.length;
+            currentArrowStyle = styles[idx].id;
+            document.getElementById('btnArrowStyle').textContent = styles[idx].label;
+        }
+
+        function setTextBoxStyle(styleId) {
+            currentTextBoxStyle = styleId;
+            document.getElementById('textStyleWhiteBtn').className = styleId === 'whiteBox'
+                ? 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-blue-600 text-white whitespace-nowrap'
+                : 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 whitespace-nowrap';
+            document.getElementById('textStyleYellowBtn').className = styleId === 'yellowBadge'
+                ? 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-amber-500 text-slate-950 whitespace-nowrap'
+                : 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-amber-100 text-amber-900 whitespace-nowrap';
+            document.getElementById('textStyleRedBtn').className = styleId === 'redTag'
+                ? 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-red-600 text-white whitespace-nowrap'
+                : 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-red-100 text-red-800 whitespace-nowrap';
+            document.getElementById('textStyleFloatBtn').className = styleId === 'floatingText'
+                ? 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-slate-900 text-white whitespace-nowrap'
+                : 'btn-press text-xs font-bold px-2.5 py-1.5 rounded-xl bg-slate-200 text-slate-800 whitespace-nowrap';
+        }
+
+        function startNewBoundarySegment() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+            currentBoundaryColor = '#ff1e00';
+            const currentPoly = photo.polylines[photo.polylines.length - 1];
+            if (currentPoly && currentPoly.points.length === 0) {
+                currentPoly.color = '#ff1e00';
+                showToast('แตะบนภาพเพื่อวางจุดแรกของเส้นได้เลย', '👆');
+                return;
+            }
+            pushHistory(photo);
+            photo.polylines.push({ points: [], closed: false, color: '#ff1e00' });
+            updateToolbarUI();
+            renderCanvas();
+            showToast('เริ่มเส้นขอบเขตชุดใหม่แล้ว', '✨');
+        }
+
+        function startBuildingOutlineTool() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+            currentTool = 'boundary';
+            currentBoundaryColor = '#facc15';
+            pushHistory(photo);
+            photo.polylines.push({ points: [], closed: true, color: '#facc15' });
+            updateToolbarUI();
+            renderCanvas();
+            showToast('แตะรอบตัวบ้านเพื่อตีเส้นขอบเขตบ้าน (สีเหลือง)', '🏠');
+        }
+
+        function toggleClosePolygon() {
+            const photo = getActivePhoto();
+            if (!photo || photo.polylines.length === 0) return;
+            pushHistory(photo);
+            const activePoly = photo.polylines[photo.polylines.length - 1];
+            activePoly.closed = !activePoly.closed;
+            updateToolbarUI();
+            renderCanvas();
+        }
+
+        // --- 5. ระบบบันทึกประวัติสำหรับกดย้อนกลับ (Undo History) ---
+        function pushHistory(photo) {
+            const snapshot = JSON.stringify({
+                polylines: photo.polylines,
+                arrows: photo.arrows,
+                textAnnotations: photo.textAnnotations || []
+            });
+            photo.history.push(snapshot);
+            if (photo.history.length > 30) photo.history.shift();
+        }
+
+        function undoLastAction() {
+            const photo = getActivePhoto();
+            if (!photo || photo.history.length === 0) {
+                showToast('ไม่มีรายการให้ย้อนกลับแล้ว', 'ℹ️');
+                return;
+            }
+            const prev = JSON.parse(photo.history.pop());
+            photo.polylines = prev.polylines;
+            photo.arrows = prev.arrows;
+            photo.textAnnotations = prev.textAnnotations || [];
+            pendingArrowStart = null;
+            aimingNewPinPos = null;
+            renderThumbnailStrip();
+            updateToolbarUI();
+            renderCanvas();
+            showToast('ย้อนกลับ 1 ขั้นตอน', '↩️');
+        }
+
+        function confirmClearCurrentPhotoMarks() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+            if (!isPhotoEdited(photo)) {
+                showToast('รูปนี้ยังไม่มีเส้นหรือหมุดให้ล้าง', 'ℹ️');
+                return;
+            }
+            const modal = document.getElementById('confirmClearModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeConfirmClearModal() {
+            const modal = document.getElementById('confirmClearModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function executeClearCurrentPhotoMarks() {
+            closeConfirmClearModal();
+            clearCurrentPhotoMarks();
+        }
+
+        function clearCurrentPhotoMarks() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+            pushHistory(photo);
+            photo.polylines = [{ points: [], closed: true, color: '#ff1e00' }];
+            photo.arrows = [];
+            photo.textAnnotations = [];
+            pendingArrowStart = null;
+            aimingNewPinPos = null;
+            renderThumbnailStrip();
+            renderCanvas();
+            showToast('ล้างเส้นทั้งหมดในรูปนี้แล้ว', '🗑️');
+        }
+
+        // --- 6. การโต้ตอบบน Canvas + แว่นขยายส่องจุด (Touch & Mouse + Magnifier Loupe) ---
+        function updateMagnifierLoupe(clientX, clientY, normX, normY) {
+            const photo = getActivePhoto();
+            if (!photo || !photo.img) return;
+
+            loupeEl.classList.remove('hidden');
+            loupeEl.classList.add('flex');
+
+            const loupeSize = 132;
+            let left = clientX - loupeSize / 2;
+            let top = clientY - loupeSize - 36;
+
+            if (top < 54) {
+                top = clientY + 42;
+            }
+            left = Math.max(8, Math.min(window.innerWidth - loupeSize - 8, left));
+
+            loupeEl.style.left = `${left}px`;
+            loupeEl.style.top = `${top}px`;
+
+            const zoomFactor = 2.5;
+            const lw = loupeCanvas.width;
+            const lh = loupeCanvas.height;
+            const baseDisplayW = parseFloat(canvas.style.width) || canvas.clientWidth || 1;
+            const baseDisplayH = parseFloat(canvas.style.height) || canvas.clientHeight || 1;
+            const srcW = (canvas.width / baseDisplayW) * (lw / zoomFactor);
+            const srcH = (canvas.height / baseDisplayH) * (lh / zoomFactor);
+            const centerX = normX * canvas.width;
+            const centerY = normY * canvas.height;
+
+            loupeCtx.fillStyle = '#0f172a';
+            loupeCtx.fillRect(0, 0, lw, lh);
+            loupeCtx.drawImage(
+                canvas,
+                centerX - srcW / 2,
+                centerY - srcH / 2,
+                srcW,
+                srcH,
+                0,
+                0,
+                lw,
+                lh
+            );
+        }
+
+        function hideMagnifierLoupe() {
+            loupeEl.classList.add('hidden');
+            loupeEl.classList.remove('flex');
+        }
+
+        function getNormalizedPointer(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.max(0.01, Math.min(0.99, (clientX - rect.left) / rect.width));
+            const y = Math.max(0.01, Math.min(0.99, (clientY - rect.top) / rect.height));
+            return { x, y };
+        }
+
+        function hitTest(photo, x, y) {
+            const hitRadius = 0.048; // ขยายระยะสัมผัสให้แตะโดนง่ายขึ้นบนจอ iPad และมือถือ
+
+            // 0. ตรวจจับการแตะที่ป้ายข้อความอิสระ / ป้ายสรุปพื้นที่ที่ดินและบ้าน
+            const texts = photo.textAnnotations || [];
+            for (let tIdx = texts.length - 1; tIdx >= 0; tIdx--) {
+                const item = texts[tIdx];
+                const halfW = item.isSummaryCard ? 0.16 : 0.10;
+                const halfH = item.isSummaryCard ? 0.08 : 0.045;
+                if (Math.abs(x - item.x) < halfW && Math.abs(y - item.y) < halfH) {
+                    return { type: 'textAnnotation', textIdx: tIdx };
+                }
+            }
+
+            // 1. ตรวจจับการแตะที่กล่องข้อความป้ายหลักหมุด
+            for (let pIdx = photo.polylines.length - 1; pIdx >= 0; pIdx--) {
+                const pts = photo.polylines[pIdx].points;
+                for (let i = pts.length - 1; i >= 0; i--) {
+                    const pt = pts[i];
+                    if (pt.pinCode) {
+                        const lx = pt.x + (pt.labelOffsetX || 0);
+                        const ly = pt.y + (pt.labelOffsetY || -0.11);
+                        if (Math.abs(x - lx) < 0.08 && Math.abs(y - ly) < 0.045) {
+                            return { type: 'pinLabel', polyIdx: pIdx, ptIdx: i };
+                        }
+                    }
+                }
+            }
+
+            // 2. ตรวจจับการแตะที่จุดหมุดสีแดง
+            for (let pIdx = photo.polylines.length - 1; pIdx >= 0; pIdx--) {
+                const pts = photo.polylines[pIdx].points;
+                for (let i = pts.length - 1; i >= 0; i--) {
+                    const pt = pts[i];
+                    if (Math.hypot(x - pt.x, y - pt.y) < hitRadius) {
+                        return { type: 'point', polyIdx: pIdx, ptIdx: i };
+                    }
+                }
+            }
+
+            // 3. ตรวจจับลูกศรและข้อความลูกศร
+            for (let aIdx = photo.arrows.length - 1; aIdx >= 0; aIdx--) {
+                const ar = photo.arrows[aIdx];
+                if (ar.text && Math.abs(x - ar.labelX) < 0.11 && Math.abs(y - ar.labelY) < 0.045) {
+                    return { type: 'arrowLabel', arrowIdx: aIdx };
+                }
+                if (Math.hypot(x - ar.startX, y - ar.startY) < hitRadius) {
+                    return { type: 'arrowStart', arrowIdx: aIdx };
+                }
+                if (Math.hypot(x - ar.endX, y - ar.endY) < hitRadius) {
+                    return { type: 'arrowEnd', arrowIdx: aIdx };
+                }
+            }
+
+            return null;
+        }
+
+        function setupCanvasEvents() {
+            const onDown = (clientX, clientY) => {
+                const photo = getActivePhoto();
+                if (!photo) return;
+
+                const { x, y } = getNormalizedPointer(clientX, clientY);
+                pointerDownPos = { x, y };
+                hasMovedDuringDrag = false;
+
+                const hit = hitTest(photo, x, y);
+
+                if (currentTool === 'move' || (hit && currentTool === 'boundary')) {
+                    if (hit) {
+                        pushHistory(photo);
+                        draggingInfo = hit;
+                        if (hit.type === 'point' || hit.type === 'arrowStart' || hit.type === 'arrowEnd') {
+                            updateMagnifierLoupe(clientX, clientY, x, y);
+                        }
+                    }
+                    return;
+                }
+
+                // โหมด 1: แตะหรือลากเพื่อเล็งวางจุดหมุดใหม่ด้วยแว่นขยาย
+                if (currentTool === 'boundary') {
+                    draggingInfo = { type: 'newPinAim' };
+                    aimingNewPinPos = { x, y };
+                    renderCanvas();
+                    updateMagnifierLoupe(clientX, clientY, x, y);
+                    return;
+                }
+
+                // โหมด 2: วาดลูกศรทางเข้า / หลักประกัน
+                if (currentTool === 'arrow') {
+                    if (!pendingArrowStart) {
+                        pendingArrowStart = { x, y };
+                        renderCanvas();
+                        updateMagnifierLoupe(clientX, clientY, x, y);
+                    } else {
+                        commitNewArrow(photo, pendingArrowStart.x, pendingArrowStart.y, x, y);
+                        pendingArrowStart = null;
+                        hideMagnifierLoupe();
+                    }
+                    return;
+                }
+
+                // โหมด 3: แตะวางป้ายข้อความอิสระ (เช่น บ้านพักอาศัย 2 ชั้น, ถนนสาธารณะ)
+                if (currentTool === 'text') {
+                    openPinModal({
+                        heading: 'ใส่ป้ายข้อความบนรูปภาพ',
+                        subtext: 'แตะเลือกข้อความสำเร็จรูปด้านล่าง หรือพิมพ์ข้อความเอง',
+                        defaultVal: 'บ้านพักอาศัย 2 ชั้น',
+                        showPrefixes: false,
+                        showTextPresets: true,
+                        showDelete: false,
+                        onConfirm: (useLabel, val) => {
+                            if (!useLabel || !val.trim()) return;
+                            pushHistory(photo);
+                            if (!photo.textAnnotations) photo.textAnnotations = [];
+                            photo.textAnnotations.push({
+                                x,
+                                y,
+                                text: val.trim(),
+                                style: currentTextBoxStyle,
+                                isSummaryCard: false
+                            });
+                            renderThumbnailStrip();
+                            renderCanvas();
+                            showToast('วางป้ายข้อความเรียบร้อย (ลากปรับตำแหน่งได้)', '🏷️');
+                        }
+                    });
+                    return;
+                }
+
+                // โหมด 4: เปิดหน้าต่างคำนวณพื้นที่เมื่อแตะบนภาพในโหมดคำนวณ
+                if (currentTool === 'calc') {
+                    openAreaCalculatorModal();
+                    return;
+                }
+            };
+
+            const onMove = (clientX, clientY) => {
+                const photo = getActivePhoto();
+                if (!photo) return;
+                const { x, y } = getNormalizedPointer(clientX, clientY);
+
+                if (pointerDownPos && Math.hypot(x - pointerDownPos.x, y - pointerDownPos.y) > 0.006) {
+                    hasMovedDuringDrag = true;
+                }
+
+                if (draggingInfo && draggingInfo.type === 'newPinAim') {
+                    aimingNewPinPos = { x, y };
+                    renderCanvas();
+                    updateMagnifierLoupe(clientX, clientY, x, y);
+                    return;
+                }
+
+                if (currentTool === 'arrow' && pendingArrowStart && hasMovedDuringDrag) {
+                    renderCanvas(canvas, { startX: pendingArrowStart.x, startY: pendingArrowStart.y, endX: x, endY: y });
+                    updateMagnifierLoupe(clientX, clientY, x, y);
+                    return;
+                }
+
+                if (!draggingInfo) return;
+
+                if (draggingInfo.type === 'point') {
+                    const pt = photo.polylines[draggingInfo.polyIdx].points[draggingInfo.ptIdx];
+                    pt.x = x;
+                    pt.y = y;
+                    renderCanvas();
+                    updateMagnifierLoupe(clientX, clientY, x, y);
+                } else if (draggingInfo.type === 'pinLabel') {
+                    const pt = photo.polylines[draggingInfo.polyIdx].points[draggingInfo.ptIdx];
+                    pt.labelOffsetX = x - pt.x;
+                    pt.labelOffsetY = y - pt.y;
+                    renderCanvas();
+                } else if (draggingInfo.type === 'arrowStart') {
+                    photo.arrows[draggingInfo.arrowIdx].startX = x;
+                    photo.arrows[draggingInfo.arrowIdx].startY = y;
+                    renderCanvas();
+                    updateMagnifierLoupe(clientX, clientY, x, y);
+                } else if (draggingInfo.type === 'arrowEnd') {
+                    photo.arrows[draggingInfo.arrowIdx].endX = x;
+                    photo.arrows[draggingInfo.arrowIdx].endY = y;
+                    renderCanvas();
+                    updateMagnifierLoupe(clientX, clientY, x, y);
+                } else if (draggingInfo.type === 'arrowLabel') {
+                    photo.arrows[draggingInfo.arrowIdx].labelX = x;
+                    photo.arrows[draggingInfo.arrowIdx].labelY = y;
+                    renderCanvas();
+                } else if (draggingInfo.type === 'textAnnotation') {
+                    photo.textAnnotations[draggingInfo.textIdx].x = x;
+                    photo.textAnnotations[draggingInfo.textIdx].y = y;
+                    renderCanvas();
+                }
+            };
+
+            const onUp = (clientX, clientY) => {
+                hideMagnifierLoupe();
+                const photo = getActivePhoto();
+                if (!photo) return;
+
+                if (draggingInfo && draggingInfo.type === 'newPinAim' && aimingNewPinPos) {
+                    const finalX = aimingNewPinPos.x;
+                    const finalY = aimingNewPinPos.y;
+                    aimingNewPinPos = null;
+                    draggingInfo = null;
+                    pointerDownPos = null;
+                    hasMovedDuringDrag = false;
+                    renderCanvas();
+
+                    openPinModal({
+                        heading: 'ระบุเลขหลักหมุดที่ดิน',
+                        subtext: 'แตะเลขหมุดเดิมด้านล่าง 1 คลิก หรือพิมพ์รหัสใหม่',
+                        defaultVal: lastUsedPrefix,
+                        showPrefixes: true,
+                        showDelete: false,
+                        onConfirm: (useLabel, val) => {
+                            pushHistory(photo);
+                            const cleanVal = val.trim();
+                            if (useLabel && cleanVal) {
+                                rememberPinCode(cleanVal);
+                                const prefixMatch = cleanVal.match(/^[0-9]*[ก-ฮ]+/);
+                                if (prefixMatch) lastUsedPrefix = prefixMatch[0];
+                            }
+                            if (photo.polylines.length === 0) {
+                                photo.polylines.push({ points: [], closed: true });
+                            }
+                            const targetPoly = photo.polylines[photo.polylines.length - 1];
+                            targetPoly.points.push({
+                                x: finalX,
+                                y: finalY,
+                                pinCode: useLabel ? cleanVal : '',
+                                labelOffsetX: 0,
+                                labelOffsetY: -0.11
+                            });
+                            renderThumbnailStrip();
+                            renderCanvas();
+                        }
+                    });
+                    return;
+                }
+
+                if (currentTool === 'arrow' && pendingArrowStart && hasMovedDuringDrag && clientX !== undefined) {
+                    const { x, y } = getNormalizedPointer(clientX, clientY);
+                    commitNewArrow(photo, pendingArrowStart.x, pendingArrowStart.y, x, y);
+                    pendingArrowStart = null;
+                }
+
+                if (draggingInfo && !hasMovedDuringDrag) {
+                    photo.history.pop();
+                    openEditForHit(photo, draggingInfo);
+                }
+
+                draggingInfo = null;
+                pointerDownPos = null;
+                hasMovedDuringDrag = false;
+            };
+
+            canvas.addEventListener('mousedown', (e) => onDown(e.clientX, e.clientY));
+            window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+            window.addEventListener('mouseup', (e) => onUp(e.clientX, e.clientY));
+
+            const viewportEl = document.getElementById('canvasViewport');
+
+            // รองรับทั้งการแตะ 1 นิ้วเพื่อตีเส้น และการถ่าง 2 นิ้วเพื่อซูม/เลื่อนภาพบน iPad และมือถือ
+            viewportEl.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 2) {
+                    e.preventDefault();
+                    isPinchGesture = true;
+                    hideMagnifierLoupe();
+                    // ยกเลิกการเล็งจุดหมุดหรือการลากชั่วคราวเมื่อเปลี่ยนเป็นถ่าง 2 นิ้ว
+                    if (draggingInfo && draggingInfo.type !== 'newPinAim') {
+                        const photo = getActivePhoto();
+                        if (photo && photo.history.length > 0) {
+                            photo.history.pop();
+                        }
+                    }
+                    aimingNewPinPos = null;
+                    draggingInfo = null;
+                    pointerDownPos = null;
+                    renderCanvas();
+
+                    const t1 = e.touches[0];
+                    const t2 = e.touches[1];
+                    pinchStartDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY) || 1;
+                    pinchStartZoom = zoomScale;
+                    pinchStartPanX = panOffsetX;
+                    pinchStartPanY = panOffsetY;
+                    pinchStartMidX = (t1.clientX + t2.clientX) / 2;
+                    pinchStartMidY = (t1.clientY + t2.clientY) / 2;
+                    return;
+                }
+                if (e.touches.length === 1 && !isPinchGesture) {
+                    if (e.target === canvas) {
+                        e.preventDefault();
+                        onDown(e.touches[0].clientX, e.touches[0].clientY);
+                    }
+                }
+            }, { passive: false });
+
+            viewportEl.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 2 && isPinchGesture) {
+                    e.preventDefault();
+                    const t1 = e.touches[0];
+                    const t2 = e.touches[1];
+                    const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY) || 1;
+                    const ratio = dist / pinchStartDist;
+                    zoomScale = Math.min(3.5, Math.max(0.75, +(pinchStartZoom * ratio).toFixed(2)));
+
+                    const midX = (t1.clientX + t2.clientX) / 2;
+                    const midY = (t1.clientY + t2.clientY) / 2;
+                    if (zoomScale > 1.0) {
+                        panOffsetX = pinchStartPanX + (midX - pinchStartMidX);
+                        panOffsetY = pinchStartPanY + (midY - pinchStartMidY);
+                    } else {
+                        panOffsetX = 0;
+                        panOffsetY = 0;
+                    }
+                    applyZoomTransform();
+                    return;
+                }
+                if (e.touches.length === 1 && !isPinchGesture) {
+                    e.preventDefault();
+                    onMove(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            }, { passive: false });
+
+            viewportEl.addEventListener('touchend', (e) => {
+                if (isPinchGesture) {
+                    if (e.touches.length === 0) {
+                        isPinchGesture = false;
+                    }
+                    return;
+                }
+                const t = e.changedTouches[0];
+                onUp(t ? t.clientX : undefined, t ? t.clientY : undefined);
+            });
+
+            viewportEl.addEventListener('touchcancel', () => {
+                isPinchGesture = false;
+                hideMagnifierLoupe();
+                aimingNewPinPos = null;
+                draggingInfo = null;
+                renderCanvas();
+            });
+        }
+
+        function commitNewArrow(photo, startX, startY, endX, endY) {
+            if (Math.hypot(endX - startX, endY - startY) < 0.03) return;
+
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2;
+
+            if (currentArrowPreset === 'CUSTOM') {
+                openPinModal({
+                    heading: 'ข้อความกำกับลูกศร',
+                    subtext: 'เช่น ทางเข้าหลักทรัพย์, กว้าง 6 เมตร, ตัวบ้านห่างถนน 10 ม.',
+                    defaultVal: 'ทางเข้าหลักทรัพย์ กว้าง 6 ม.',
+                    showPrefixes: false,
+                    showTextPresets: true,
+                    showDelete: false,
+                    onConfirm: (useLabel, val) => {
+                        pushHistory(photo);
+                        photo.arrows.push({
+                            startX,
+                            startY,
+                            endX,
+                            endY,
+                            text: useLabel ? val.trim() : '',
+                            labelX: midX,
+                            labelY: midY - 0.04,
+                            color: currentArrowColor,
+                            style: currentArrowStyle
+                        });
+                        renderThumbnailStrip();
+                        renderCanvas();
+                    }
+                });
+            } else {
+                pushHistory(photo);
+                photo.arrows.push({
+                    startX,
+                    startY,
+                    endX,
+                    endY,
+                    text: currentArrowPreset,
+                    labelX: currentArrowPreset === 'หลักประกัน' ? startX : midX - 0.04,
+                    labelY: currentArrowPreset === 'หลักประกัน' ? startY - 0.035 : midY,
+                    color: currentArrowColor,
+                    style: currentArrowStyle
+                });
+                renderThumbnailStrip();
+                renderCanvas();
+            }
+        }
+
+        function openEditForHit(photo, hit) {
+            if (hit.type === 'textAnnotation') {
+                const item = photo.textAnnotations[hit.textIdx];
+                openPinModal({
+                    heading: 'แก้ไขป้ายข้อความ / ลบป้าย',
+                    subtext: 'แก้ไขข้อความในป้าย หรือกดปุ่มสีแดงด้านบนเพื่อลบป้ายนี้',
+                    defaultVal: item.text,
+                    showPrefixes: false,
+                    showTextPresets: true,
+                    showDelete: true,
+                    onConfirm: (useLabel, val) => {
+                        if (!useLabel || !val.trim()) return;
+                        pushHistory(photo);
+                        item.text = val.trim();
+                        renderCanvas();
+                    },
+                    onDelete: () => {
+                        pushHistory(photo);
+                        photo.textAnnotations.splice(hit.textIdx, 1);
+                        renderThumbnailStrip();
+                        renderCanvas();
+                        showToast('ลบป้ายข้อความแล้ว', '🗑️');
+                    }
+                });
+                return;
+            }
+            if (hit.type === 'point' || hit.type === 'pinLabel') {
+                const pt = photo.polylines[hit.polyIdx].points[hit.ptIdx];
+                openPinModal({
+                    heading: 'แก้ไขเลขหลักหมุด / ลบจุด',
+                    subtext: 'เปลี่ยนรหัสหลักหมุด หรือกดปุ่มสีแดงด้านบนเพื่อลบจุดนี้',
+                    defaultVal: pt.pinCode || lastUsedPrefix,
+                    showPrefixes: true,
+                    showDelete: true,
+                    onConfirm: (useLabel, val) => {
+                        pushHistory(photo);
+                        const cleanVal = val.trim();
+                        if (useLabel && cleanVal) rememberPinCode(cleanVal);
+                        pt.pinCode = useLabel ? cleanVal : '';
+                        renderCanvas();
+                    },
+                    onDelete: () => {
+                        pushHistory(photo);
+                        photo.polylines[hit.polyIdx].points.splice(hit.ptIdx, 1);
+                        renderThumbnailStrip();
+                        renderCanvas();
+                        showToast('ลบจุดหมุดแล้ว', '🗑️');
+                    }
+                });
+            } else if (hit.type === 'arrowLabel' || hit.type === 'arrowStart' || hit.type === 'arrowEnd') {
+                const ar = photo.arrows[hit.arrowIdx];
+                openPinModal({
+                    heading: 'แก้ไขป้ายลูกศร / ลบลูกศร',
+                    subtext: 'แก้ไขข้อความกำกับลูกศร หรือกดลบลูกศรเส้นนี้',
+                    defaultVal: ar.text || 'ทางเข้าหลักทรัพย์',
+                    showPrefixes: false,
+                    showDelete: true,
+                    onConfirm: (useLabel, val) => {
+                        pushHistory(photo);
+                        ar.text = useLabel ? val.trim() : '';
+                        renderCanvas();
+                    },
+                    onDelete: () => {
+                        pushHistory(photo);
+                        photo.arrows.splice(hit.arrowIdx, 1);
+                        renderThumbnailStrip();
+                        renderCanvas();
+                        showToast('ลบลูกศรแล้ว', '🗑️');
+                    }
+                });
+            }
+        }
+
+        // --- 7. ระบบวาดเส้น จุดหมุด กล่องป้ายขาว และลูกศรลงบนภาพ (Canvas Rendering) ---
+        function renderCanvas(targetCanvas = canvas, previewArrow = null) {
+            const photo = getActivePhoto();
+            if (!photo || !photo.img) return;
+
+            const c = targetCanvas.getContext('2d');
+            const w = photo.img.width;
+            const h = photo.img.height;
+
+            if (targetCanvas.width !== w || targetCanvas.height !== h) {
+                targetCanvas.width = w;
+                targetCanvas.height = h;
+            }
+
+            c.clearRect(0, 0, w, h);
+            c.drawImage(photo.img, 0, 0, w, h);
+
+            const scale = Math.max(0.65, Math.min(w, h) / 960);
+
+            // วาดเส้นประสีแดงเชื่อมจากจุดหมุดล่าสุดไปยังตำแหน่งที่กำลังส่องแว่นขยายเล็งจุดใหม่
+            if (aimingNewPinPos && targetCanvas === canvas && photo.polylines.length > 0) {
+                const activePoly = photo.polylines[photo.polylines.length - 1];
+                const aimColor = activePoly.color || currentBoundaryColor || '#ff1e00';
+                if (activePoly && activePoly.points.length > 0) {
+                    const lastPt = activePoly.points[activePoly.points.length - 1];
+                    c.save();
+                    c.setLineDash([10 * scale, 8 * scale]);
+                    c.beginPath();
+                    c.moveTo(lastPt.x * w, lastPt.y * h);
+                    c.lineTo(aimingNewPinPos.x * w, aimingNewPinPos.y * h);
+                    c.strokeStyle = aimColor;
+                    c.lineWidth = Math.max(3, 5 * scale);
+                    c.stroke();
+                    c.restore();
+                }
+
+                c.save();
+                c.beginPath();
+                c.arc(aimingNewPinPos.x * w, aimingNewPinPos.y * h, Math.max(10, 15 * scale), 0, Math.PI * 2);
+                c.fillStyle = 'rgba(255, 30, 0, 0.45)';
+                c.fill();
+                c.lineWidth = 3 * scale;
+                c.strokeStyle = '#ffffff';
+                c.stroke();
+                c.restore();
+            }
+
+            // วาดเส้นขอบเขตที่ดินสีแดง หรือเส้นขอบเขตตัวบ้านสีเหลือง (Polylines)
+            photo.polylines.forEach(poly => {
+                const pts = poly.points;
+                const strokeColor = poly.color || '#ff1e00';
+                if (pts.length >= 2) {
+                    c.save();
+                    c.beginPath();
+                    c.moveTo(pts[0].x * w, pts[0].y * h);
+                    for (let i = 1; i < pts.length; i++) {
+                        c.lineTo(pts[i].x * w, pts[i].y * h);
+                    }
+                    if (poly.closed && pts.length >= 3) {
+                        c.closePath();
+                        if (strokeColor === '#facc15') {
+                            c.fillStyle = 'rgba(250, 204, 21, 0.18)';
+                            c.fill();
+                        }
+                    }
+                    c.lineCap = 'round';
+                    c.lineJoin = 'round';
+                    c.lineWidth = Math.max(4, 6.5 * scale);
+                    c.strokeStyle = strokeColor;
+                    c.stroke();
+                    c.restore();
+                }
+
+                // วาดจุดหมุดวงกลม + ลูกศรชี้ขึ้น + กล่องข้อความพื้นขาวขอบมน
+                pts.forEach(pt => {
+                    const px = pt.x * w;
+                    const py = pt.y * h;
+
+                    c.save();
+                    c.beginPath();
+                    c.arc(px, py, Math.max(9, 14.5 * scale), 0, Math.PI * 2);
+                    c.fillStyle = strokeColor;
+                    c.fill();
+                    c.restore();
+
+                    if (pt.pinCode && pt.pinCode.trim() !== '') {
+                        const boxCenterX = (pt.x + (pt.labelOffsetX || 0)) * w;
+                        const boxCenterY = (pt.y + (pt.labelOffsetY || -0.11)) * h;
+                        drawPinCalloutBox(c, px, py, boxCenterX, boxCenterY, pt.pinCode.trim(), scale, strokeColor);
+                    }
+                });
+            });
+
+            // วาดลูกศรทางเข้าหลักทรัพย์ / หลักประกัน / ลูกศรวัดระยะ
+            photo.arrows.forEach(ar => {
+                const col = ar.color || '#ff1e00';
+                const st = ar.style || 'solid';
+                drawRedArrow(c, ar.startX * w, ar.startY * h, ar.endX * w, ar.endY * h, scale, st === 'dashed', col, st === 'double');
+                if (ar.text) {
+                    drawFloatingWhiteText(c, ar.labelX * w, ar.labelY * h, ar.text, scale, col);
+                }
+            });
+
+            // วาดป้ายข้อความอิสระ & ป้ายสรุปพื้นที่ที่ดินและขนาดบ้าน
+            (photo.textAnnotations || []).forEach(item => {
+                drawCustomTextAnnotation(c, item.x * w, item.y * h, item.text, item.style || 'whiteBox', scale, item.isSummaryCard);
+            });
+
+            // วาดเส้นพรีวิวระหว่างลากลูกศร
+            if (previewArrow) {
+                drawRedArrow(c, previewArrow.startX * w, previewArrow.startY * h, previewArrow.endX * w, previewArrow.endY * h, scale, true, currentArrowColor, currentArrowStyle === 'double');
+            } else if (pendingArrowStart && targetCanvas === canvas) {
+                c.save();
+                c.beginPath();
+                c.arc(pendingArrowStart.x * w, pendingArrowStart.y * h, 12 * scale, 0, Math.PI * 2);
+                c.fillStyle = currentArrowColor;
+                c.fill();
+                c.lineWidth = 3 * scale;
+                c.strokeStyle = '#ffffff';
+                c.stroke();
+                c.restore();
+            }
+        }
+
+        function drawPinCalloutBox(c, dotX, dotY, boxX, boxY, pinCode, scale, accentColor = '#ff2a00') {
+            c.save();
+
+            const isHouseTag = pinCode.startsWith('🏠') || accentColor === '#facc15';
+            const line1 = isHouseTag ? 'สิ่งปลูกสร้าง/บ้าน' : 'หลักหมุดเลขที่';
+            const line2 = pinCode;
+
+            const font1 = Math.round(21 * scale);
+            const font2 = Math.round(23 * scale);
+
+            c.font = `700 ${font1}px Sarabun, sans-serif`;
+            const w1 = c.measureText(line1).width;
+            c.font = `800 ${font2}px Sarabun, sans-serif`;
+            const w2 = c.measureText(line2).width;
+
+            const padX = 18 * scale;
+            const boxW = Math.max(w1, w2) + padX * 2;
+            const boxH = 66 * scale;
+            const rx = boxX - boxW / 2;
+            const ry = boxY - boxH / 2;
+
+            const arrowStartX = dotX;
+            const arrowStartY = dotY - 12 * scale;
+            const arrowTipX = boxX;
+            const arrowTipY = ry + boxH + 6 * scale;
+
+            c.beginPath();
+            c.moveTo(arrowStartX, arrowStartY);
+            c.lineTo(arrowTipX, arrowTipY + 10 * scale);
+            c.strokeStyle = accentColor;
+            c.lineWidth = Math.max(4, 6 * scale);
+            c.stroke();
+
+            const angle = Math.atan2(arrowTipY - arrowStartY, arrowTipX - arrowStartX);
+            const headLen = 18 * scale;
+            c.beginPath();
+            c.moveTo(arrowTipX, arrowTipY);
+            c.lineTo(arrowTipX - headLen * Math.cos(angle - Math.PI / 6), arrowTipY - headLen * Math.sin(angle - Math.PI / 6));
+            c.lineTo(arrowTipX - headLen * Math.cos(angle + Math.PI / 6), arrowTipY - headLen * Math.sin(angle + Math.PI / 6));
+            c.closePath();
+            c.fillStyle = accentColor;
+            c.fill();
+
+            c.shadowColor = 'rgba(0,0,0,0.28)';
+            c.shadowBlur = 8 * scale;
+            c.shadowOffsetY = 2 * scale;
+            c.fillStyle = '#ffffff';
+            drawRoundedRect(c, rx, ry, boxW, boxH, 10 * scale);
+            c.fill();
+
+            c.shadowColor = 'transparent';
+            c.fillStyle = '#0f172a';
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+
+            c.font = `700 ${font1}px Sarabun, sans-serif`;
+            c.fillText(line1, boxX, ry + boxH * 0.33);
+
+            c.font = `800 ${font2}px Sarabun, sans-serif`;
+            c.fillText(line2, boxX, ry + boxH * 0.73);
+
+            c.restore();
+        }
+
+        function drawRedArrow(c, x1, y1, x2, y2, scale, isDashed = false, color = '#ff1e00', isDoubleHead = false) {
+            c.save();
+            if (isDashed) c.setLineDash([12 * scale, 8 * scale]);
+
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            const headLen = 26 * scale;
+
+            c.beginPath();
+            c.moveTo(x1, y1);
+            c.lineTo(x2, y2);
+            c.strokeStyle = color;
+            c.lineWidth = Math.max(4, 6.5 * scale);
+            c.lineCap = 'round';
+            c.stroke();
+
+            c.setLineDash([]);
+            c.beginPath();
+            c.moveTo(x2, y2);
+            c.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6.5), y2 - headLen * Math.sin(angle - Math.PI / 6.5));
+            c.moveTo(x2, y2);
+            c.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6.5), y2 - headLen * Math.sin(angle + Math.PI / 6.5));
+
+            if (isDoubleHead) {
+                const revAngle = angle + Math.PI;
+                c.moveTo(x1, y1);
+                c.lineTo(x1 - headLen * Math.cos(revAngle - Math.PI / 6.5), y1 - headLen * Math.sin(angle - Math.PI / 6.5));
+                c.moveTo(x1, y1);
+                c.lineTo(x1 - headLen * Math.cos(revAngle + Math.PI / 6.5), y1 - headLen * Math.sin(revAngle + Math.PI / 6.5));
+            }
+
+            c.strokeStyle = color;
+            c.lineWidth = Math.max(4, 6.5 * scale);
+            c.lineCap = 'round';
+            c.stroke();
+
+            c.restore();
+        }
+
+        function drawFloatingWhiteText(c, x, y, text, scale, accentColor = '#ff1e00') {
+            c.save();
+            const fontSize = Math.round(33 * scale);
+            c.font = `800 ${fontSize}px Sarabun, sans-serif`;
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+
+            c.lineWidth = 6 * scale;
+            c.strokeStyle = 'rgba(0,0,0,0.68)';
+            c.strokeText(text, x, y);
+
+            c.fillStyle = accentColor === '#facc15' ? '#fef08a' : '#ffffff';
+            c.fillText(text, x, y);
+            c.restore();
+        }
+
+        function drawCustomTextAnnotation(c, x, y, text, style, scale, isSummaryCard = false) {
+            c.save();
+            const lines = String(text).split('\n');
+            const fontSize = Math.round((isSummaryCard ? 22 : 25) * scale);
+            const lineHeight = fontSize * 1.32;
+            c.font = `800 ${fontSize}px Sarabun, sans-serif`;
+
+            let maxW = 0;
+            lines.forEach(line => {
+                const w = c.measureText(line).width;
+                if (w > maxW) maxW = w;
+            });
+
+            if (style === 'floatingText') {
+                c.textAlign = 'center';
+                c.textBaseline = 'middle';
+                const startY = y - ((lines.length - 1) * lineHeight) / 2;
+                lines.forEach((line, idx) => {
+                    const ly = startY + idx * lineHeight;
+                    c.lineWidth = 6 * scale;
+                    c.strokeStyle = 'rgba(0,0,0,0.75)';
+                    c.strokeText(line, x, ly);
+                    c.fillStyle = '#ffffff';
+                    c.fillText(line, x, ly);
+                });
+                c.restore();
+                return;
+            }
+
+            const padX = 20 * scale;
+            const padY = 14 * scale;
+            const boxW = maxW + padX * 2;
+            const boxH = lines.length * lineHeight + padY * 2;
+            const rx = x - boxW / 2;
+            const ry = y - boxH / 2;
+
+            c.shadowColor = 'rgba(0,0,0,0.32)';
+            c.shadowBlur = 10 * scale;
+            c.shadowOffsetY = 3 * scale;
+
+            if (style === 'yellowBadge') {
+                c.fillStyle = '#facc15';
+                c.strokeStyle = '#ca8a04';
+            } else if (style === 'redTag') {
+                c.fillStyle = '#dc2626';
+                c.strokeStyle = '#ffffff';
+            } else {
+                c.fillStyle = 'rgba(255, 255, 255, 0.96)';
+                c.strokeStyle = '#0f172a';
+            }
+
+            drawRoundedRect(c, rx, ry, boxW, boxH, 12 * scale);
+            c.fill();
+            c.lineWidth = 2.5 * scale;
+            c.stroke();
+
+            c.shadowColor = 'transparent';
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.fillStyle = style === 'redTag' ? '#ffffff' : '#0f172a';
+
+            const startY = ry + padY + lineHeight / 2;
+            lines.forEach((line, idx) => {
+                c.fillText(line, x, startY + idx * lineHeight);
+            });
+
+            c.restore();
+        }
+
+        function drawRoundedRect(c, x, y, width, height, radius) {
+            c.beginPath();
+            c.moveTo(x + radius, y);
+            c.lineTo(x + width - radius, y);
+            c.quadraticCurveTo(x + width, y, x + width, y + radius);
+            c.lineTo(x + width, y + height - radius);
+            c.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            c.lineTo(x + radius, y + height);
+            c.quadraticCurveTo(x, y + height, x, y + height - radius);
+            c.lineTo(x, y + radius);
+            c.quadraticCurveTo(x, y, x + radius, y);
+            c.closePath();
+        }
+
+        // --- 8. หน้าต่างใส่เลขหมุดด่วน + ระบบจำเลขหมุดข้ามรูปในเคสเดียวกัน (1-Click Memory Chips) ---
+        function rememberPinCode(code) {
+            const clean = code.trim();
+            if (!clean) return;
+            sessionPinMemory = [clean, ...sessionPinMemory.filter(item => item !== clean)].slice(0, 12);
+            try {
+                localStorage.setItem('smart_land_pin_memory_v1', JSON.stringify(sessionPinMemory));
+            } catch (e) {}
+        }
+
+        function renderCaseMemoryChips() {
+            const container = document.getElementById('caseMemoryChipsContainer');
+            if (!container) return;
+            container.innerHTML = '';
+
+            photoItems.forEach(p => {
+                p.polylines.forEach(poly => {
+                    poly.points.forEach(pt => {
+                        if (pt.pinCode && pt.pinCode.trim() && !pt.pinCode.startsWith('🏠')) {
+                            rememberPinCode(pt.pinCode.trim());
+                        }
+                    });
+                });
+            });
+
+            sessionPinMemory.forEach(pin => {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'btn-press bg-white hover:bg-emerald-600 hover:text-white text-emerald-900 border border-emerald-300 font-extrabold text-xs px-3 py-1.5 rounded-xl shadow-2xs transition-colors flex items-center gap-1';
+                chip.innerHTML = `<span>📌 ${pin}</span>`;
+                chip.onclick = () => {
+                    document.getElementById('modalTextInput').value = pin;
+                    submitPinModal(true);
+                };
+                container.appendChild(chip);
+            });
+        }
+
+        function openPinModal({ heading, subtext, defaultVal, showPrefixes, showTextPresets = false, showDelete, onConfirm, onDelete }) {
+            document.getElementById('modalHeading').textContent = heading;
+            document.getElementById('modalSubtext').textContent = subtext;
+            const input = document.getElementById('modalTextInput');
+            input.value = defaultVal;
+
+            document.getElementById('quickPrefixBar').style.display = showPrefixes ? 'block' : 'none';
+            const memSection = document.getElementById('caseMemoryPinsSection');
+            memSection.style.display = showPrefixes ? 'block' : 'none';
+            if (showPrefixes) {
+                renderCaseMemoryChips();
+            }
+
+            const textPresetBar = document.getElementById('quickTextPresetsBar');
+            if (textPresetBar) {
+                textPresetBar.classList.toggle('hidden', !showTextPresets);
+            }
+
+            const delBtn = document.getElementById('btnDeleteItemModal');
+            delBtn.classList.toggle('hidden', !showDelete);
+
+            onModalSubmit = onConfirm;
+            onModalDelete = onDelete;
+
+            const modal = document.getElementById('pinInputModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            setTimeout(() => {
+                input.focus();
+                input.setSelectionRange(input.value.length, input.value.length);
+            }, 60);
+        }
+
+        function selectQuickTextPreset(presetText) {
+            const input = document.getElementById('modalTextInput');
+            input.value = presetText;
+            submitPinModal(true);
+        }
+
+        // --- 8.2 ระบบคำนวณเนื้อที่ดิน (ไร่-งาน-ตารางวา) และขนาดสิ่งปลูกสร้าง/บ้าน (ตารางเมตร) ---
+        function openAreaCalculatorModal() {
+            recalculateAllAreas();
+            const modal = document.getElementById('areaCalcModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeAreaCalculatorModal() {
+            const modal = document.getElementById('areaCalcModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function switchLandCalcMode(mode) {
+            landCalcMode = mode;
+            const deedBtn = document.getElementById('landModeDeedBtn');
+            const sidesBtn = document.getElementById('landModeSidesBtn');
+            const deedWrap = document.getElementById('landDeedInputs');
+            const sidesWrap = document.getElementById('landSidesInputs');
+
+            if (mode === 'deed') {
+                deedBtn.className = 'px-2 py-0.5 rounded-md font-bold bg-emerald-600 text-white';
+                sidesBtn.className = 'px-2 py-0.5 rounded-md font-bold text-slate-600';
+                deedWrap.className = 'grid grid-cols-3 gap-2 mb-2';
+                sidesWrap.className = 'hidden grid-cols-4 gap-1.5 mb-2';
+            } else {
+                sidesBtn.className = 'px-2 py-0.5 rounded-md font-bold bg-emerald-600 text-white';
+                deedBtn.className = 'px-2 py-0.5 rounded-md font-bold text-slate-600';
+                deedWrap.className = 'hidden grid-cols-3 gap-2 mb-2';
+                sidesWrap.className = 'grid grid-cols-4 gap-1.5 mb-2';
+            }
+            recalculateAllAreas();
+        }
+
+        function recalculateAllAreas() {
+            let totalSqM = 0;
+            let rai = 0, ngan = 0, sqWa = 0;
+
+            if (landCalcMode === 'deed') {
+                rai = Math.max(0, parseFloat(document.getElementById('calcRai').value) || 0);
+                ngan = Math.max(0, parseFloat(document.getElementById('calcNgan').value) || 0);
+                sqWa = Math.max(0, parseFloat(document.getElementById('calcSqWa').value) || 0);
+                const totalSqWa = (rai * 400) + (ngan * 100) + sqWa;
+                totalSqM = totalSqWa * 4;
+            } else {
+                const n = Math.max(0, parseFloat(document.getElementById('sideNorth').value) || 0);
+                const s = Math.max(0, parseFloat(document.getElementById('sideSouth').value) || 0);
+                const e = Math.max(0, parseFloat(document.getElementById('sideEast').value) || 0);
+                const w = Math.max(0, parseFloat(document.getElementById('sideWest').value) || 0);
+                totalSqM = ((n + s) / 2) * ((e + w) / 2);
+                const totalSqWa = totalSqM / 4;
+                rai = Math.floor(totalSqWa / 400);
+                ngan = Math.floor((totalSqWa % 400) / 100);
+                sqWa = +(totalSqWa % 100).toFixed(1);
+            }
+
+            const landText = `${rai} ไร่ ${ngan} งาน ${sqWa} ตร.ว. (${Math.round(totalSqM).toLocaleString()} ตร.ม.)`;
+            document.getElementById('landResultSummary').textContent = landText;
+
+            const hasBuilding = document.getElementById('hasBuildingToggle').checked;
+            document.getElementById('buildingInputsWrap').style.opacity = hasBuilding ? '1' : '0.45';
+
+            const bType = document.getElementById('buildingTypeSelect').value;
+            const bw = Math.max(0, parseFloat(document.getElementById('houseWidthM').value) || 0);
+            const bl = Math.max(0, parseFloat(document.getElementById('houseLengthM').value) || 0);
+            const floors = Math.max(1, parseInt(document.getElementById('houseFloors').value) || 1);
+            const houseSqM = bw * bl * floors;
+
+            const buildingText = `${bw} × ${bl} ม. (${floors} ชั้น) = ${houseSqM.toLocaleString()} ตร.ม.`;
+            document.getElementById('buildingResultSummary').textContent = buildingText;
+
+            return { landText, hasBuilding, bType, bw, bl, floors, houseSqM };
+        }
+
+        function insertSummaryStampToPhoto() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+
+            const info = recalculateAllAreas();
+            const lines = [`เนื้อที่ดิน: ${info.landText}`];
+            if (info.hasBuilding) {
+                lines.push(`สิ่งปลูกสร้าง: ${info.bType}`);
+                lines.push(`ขนาดบ้าน: ${info.bw}×${info.bl} ม. (${info.floors} ชั้น) พื้นที่ใช้สอย ${info.houseSqM} ตร.ม.`);
+            }
+
+            pushHistory(photo);
+            if (!photo.textAnnotations) photo.textAnnotations = [];
+            photo.textAnnotations.push({
+                x: 0.27,
+                y: 0.84,
+                text: lines.join('\n'),
+                style: 'whiteBox',
+                isSummaryCard: true
+            });
+
+            closeAreaCalculatorModal();
+            selectTool('move');
+            renderThumbnailStrip();
+            renderCanvas();
+            showToast('วางป้ายสรุปเนื้อที่ดินและขนาดบ้านแล้ว (ใช้นิ้วลากย้ายมุมได้)', '📐');
+        }
+
+        function insertHouseCalloutPin() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+
+            const info = recalculateAllAreas();
+            pushHistory(photo);
+            photo.polylines.push({
+                closed: false,
+                color: '#facc15',
+                points: [
+                    {
+                        x: 0.50,
+                        y: 0.52,
+                        pinCode: `🏠 ${info.bw}×${info.bl}ม. (${info.houseSqM} ตร.ม.)`,
+                        labelOffsetX: 0,
+                        labelOffsetY: -0.12
+                    }
+                ]
+            });
+
+            closeAreaCalculatorModal();
+            selectTool('move');
+            renderThumbnailStrip();
+            renderCanvas();
+            showToast('วางหมุดชี้ขนาดตัวบ้านแล้ว ลากจุดสีเหลืองไปวางบนตัวบ้านได้เลย', '🏠');
+        }
+
+        function insertPrefix(prefix) {
+            const input = document.getElementById('modalTextInput');
+            const digitsOnly = input.value.replace(/^[0-9]*[ก-ฮ]+/, '');
+            input.value = prefix + digitsOnly;
+            input.focus();
+        }
+
+        function submitPinModal(useLabel) {
+            const val = document.getElementById('modalTextInput').value;
+            closePinModal();
+            if (onModalSubmit) onModalSubmit(useLabel, val);
+        }
+
+        function deleteSelectedElementFromModal() {
+            closePinModal();
+            if (onModalDelete) onModalDelete();
+        }
+
+        function closePinModal() {
+            const modal = document.getElementById('pinInputModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // --- 9. ระบบบันทึก แชร์เข้า LINE มือถือ (Web Share API) และดาวน์โหลดภาพความละเอียดสูง ---
+        function renderPhotoToDataURL(photoItem) {
+            const offCanvas = document.createElement('canvas');
+            const prevIdx = activeIndex;
+            activeIndex = photoItems.indexOf(photoItem);
+            renderCanvas(offCanvas);
+            activeIndex = prevIdx;
+            return offCanvas.toDataURL('image/jpeg', 0.93);
+        }
+
+        function dataURLToFile(dataUrl, fileName) {
+            const arr = dataUrl.split(',');
+            const mime = arr[0].match(/:(.*?);/)[1];
+            const bstr = atob(arr[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            return new File([u8arr], fileName, { type: mime });
+        }
+
+        async function sharePhotosToLineOrMobile() {
+            if (photoItems.length === 0) return;
+
+            const editedPhotos = photoItems.filter(p => isPhotoEdited(p));
+            const targetList = editedPhotos.length > 0 ? editedPhotos : [getActivePhoto()];
+
+            showToast(`กำลังเตรียมรูปภาพ ${targetList.length} ใบเพื่อแชร์...`, '📲');
+
+            try {
+                const files = targetList.map((item, idx) => {
+                    const dataUrl = renderPhotoToDataURL(item);
+                    const safeName = `0${idx + 1}_${item.name.replace(/[^a-zA-Z0-9ก-๙_-]/g, '_')}_ตีเส้นแล้ว.jpg`;
+                    return dataURLToFile(dataUrl, safeName);
+                });
+
+                if (navigator.canShare && navigator.canShare({ files })) {
+                    await navigator.share({
+                        files,
+                        title: 'ภาพถ่ายตีเส้นที่ดินประกอบสินเชื่อ',
+                        text: `ชุดภาพถ่ายที่ดินตีเส้นและปักหลักหมุด (${files.length} รูป)`
+                    });
+                    showToast('ส่งรูปภาพไปยังเมนูแชร์เรียบร้อย!', '✅');
+                    return;
+                }
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    showToast('ยกเลิกการแชร์รูปภาพ', 'ℹ️');
+                    return;
+                }
+            }
+
+            if (targetList.length === 1) {
+                downloadCurrentPhoto();
+            } else {
+                await downloadAllZip();
+            }
+        }
+
+        function isIOSOrIPadDevice() {
+            const ua = navigator.userAgent || '';
+            const isIOS = /iPad|iPhone|iPod/.test(ua);
+            const isIPadOS = (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            return isIOS || isIPadOS;
+        }
+
+        function closeIosImagePreviewModal() {
+            const modal = document.getElementById('iosImagePreviewModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function downloadCurrentPhoto() {
+            const photo = getActivePhoto();
+            if (!photo) return;
+
+            const dataUrl = renderPhotoToDataURL(photo);
+
+            // บน iPad / iPhone ให้แสดงหน้าต่างพรีวิวที่แตะค้างเพื่อบันทึกลงแอปรูปภาพได้ทันที พร้อมดาวน์โหลดควบคู่กัน
+            if (isIOSOrIPadDevice()) {
+                const previewImg = document.getElementById('iosPreviewImgTag');
+                if (previewImg) {
+                    previewImg.src = dataUrl;
+                    const modal = document.getElementById('iosImagePreviewModal');
+                    modal.classList.remove('hidden');
+                    modal.classList.add('flex');
+                    showToast('แตะค้างที่รูปภาพเพื่อบันทึกลงอัลบั้ม iPad/iPhone ได้เลย', '📲');
+                    return;
+                }
+            }
+
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `${photo.name}_ตีเส้นแล้ว.jpg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            showToast(`บันทึกรูป "${photo.name}" เรียบร้อย`, '💾');
+        }
+
+        // --- 10. ระบบสำรองข้อมูล (Export JSON) และกู้คืนข้อมูล (Import JSON) พร้อม Schema Migration ---
+        function openProjectBackupModal() {
+            const modal = document.getElementById('projectBackupModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeProjectBackupModal() {
+            const modal = document.getElementById('projectBackupModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function exportProjectJson() {
+            if (photoItems.length === 0) {
+                showToast('ไม่มีข้อมูลรูปภาพให้สำรอง', '⚠️');
+                return;
+            }
+
+            const payload = {
+                schemaVersion: 2,
+                exportedAt: new Date().toISOString(),
+                sessionPinMemory: sessionPinMemory || [],
+                activeIndex: activeIndex,
+                photos: photoItems.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    imageDataUrl: item.img ? item.img.src : '',
+                    polylines: item.polylines || [{ points: [], closed: true, color: '#ff1e00' }],
+                    arrows: item.arrows || [],
+                    textAnnotations: item.textAnnotations || []
+                }))
+            };
+
+            const jsonStr = JSON.stringify(payload, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const dateTag = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `สำรองงานตีเส้นที่ดิน_${dateTag}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            closeProjectBackupModal();
+            showToast('สำรองข้อมูลงานตีเส้น (JSON) เรียบร้อย!', '📤');
+        }
+
+        function importProjectJson(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (!data || !Array.isArray(data.photos) || data.photos.length === 0) {
+                        showToast('ไฟล์ JSON ไม่ถูกต้องหรือไม่มีข้อมูลรูปภาพ', '⚠️');
+                        return;
+                    }
+
+                    // รองรับ Schema Migration สำหรับข้อมูลเก่าที่อาจไม่มีบางฟิลด์
+                    if (Array.isArray(data.sessionPinMemory) && data.sessionPinMemory.length > 0) {
+                        sessionPinMemory = data.sessionPinMemory;
+                        try {
+                            localStorage.setItem('smart_land_pin_memory_v1', JSON.stringify(sessionPinMemory));
+                        } catch (err) {}
+                    }
+
+                    const restoredPhotos = [];
+                    let loadedCount = 0;
+
+                    data.photos.forEach((rawPhoto, idx) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const migratedPolylines = Array.isArray(rawPhoto.polylines) && rawPhoto.polylines.length > 0
+                                ? rawPhoto.polylines.map(poly => ({
+                                    closed: poly.closed !== undefined ? Boolean(poly.closed) : true,
+                                    color: poly.color || '#ff1e00',
+                                    points: Array.isArray(poly.points) ? poly.points.map(pt => ({
+                                        x: typeof pt.x === 'number' ? pt.x : 0.5,
+                                        y: typeof pt.y === 'number' ? pt.y : 0.5,
+                                        pinCode: pt.pinCode || '',
+                                        labelOffsetX: typeof pt.labelOffsetX === 'number' ? pt.labelOffsetX : 0,
+                                        labelOffsetY: typeof pt.labelOffsetY === 'number' ? pt.labelOffsetY : -0.11
+                                    })) : []
+                                }))
+                                : [{ points: [], closed: true, color: '#ff1e00' }];
+
+                            const migratedArrows = Array.isArray(rawPhoto.arrows)
+                                ? rawPhoto.arrows.map(ar => ({
+                                    startX: typeof ar.startX === 'number' ? ar.startX : 0.4,
+                                    startY: typeof ar.startY === 'number' ? ar.startY : 0.8,
+                                    endX: typeof ar.endX === 'number' ? ar.endX : 0.5,
+                                    endY: typeof ar.endY === 'number' ? ar.endY : 0.5,
+                                    text: ar.text || '',
+                                    labelX: typeof ar.labelX === 'number' ? ar.labelX : 0.45,
+                                    labelY: typeof ar.labelY === 'number' ? ar.labelY : 0.65,
+                                    color: ar.color || '#ff1e00',
+                                    style: ar.style || 'solid'
+                                }))
+                                : [];
+
+                            const migratedTexts = Array.isArray(rawPhoto.textAnnotations)
+                                ? rawPhoto.textAnnotations.map(t => ({
+                                    x: typeof t.x === 'number' ? t.x : 0.5,
+                                    y: typeof t.y === 'number' ? t.y : 0.5,
+                                    text: t.text || '',
+                                    style: t.style || 'whiteBox',
+                                    isSummaryCard: Boolean(t.isSummaryCard)
+                                }))
+                                : [];
+
+                            restoredPhotos[idx] = {
+                                id: rawPhoto.id || ('restored-' + Date.now() + '-' + idx),
+                                name: rawPhoto.name || `รูปที่_${idx + 1}`,
+                                img: img,
+                                polylines: migratedPolylines,
+                                arrows: migratedArrows,
+                                textAnnotations: migratedTexts,
+                                history: []
+                            };
+
+                            loadedCount++;
+                            if (loadedCount === data.photos.length) {
+                                photoItems = restoredPhotos.filter(Boolean);
+                                const targetIdx = typeof data.activeIndex === 'number' && data.activeIndex >= 0 && data.activeIndex < photoItems.length
+                                    ? data.activeIndex
+                                    : 0;
+                                selectPhoto(targetIdx);
+                                closeProjectBackupModal();
+                                showToast(`กู้คืนข้อมูลสำเร็จ (${photoItems.length} รูป)!`, '📥');
+                            }
+                        };
+                        img.src = rawPhoto.imageDataUrl || createPreWatermarkedDemoImage(1);
+                    });
+                } catch (err) {
+                    showToast('ไม่สามารถอ่านไฟล์ JSON ได้ กรุณาตรวจสอบไฟล์', '⚠️');
+                }
+            };
+            reader.readAsText(file, 'UTF-8');
+            event.target.value = '';
+        }
+
+        async function downloadAllZip() {
+            if (photoItems.length === 0) return;
+
+            const btn = document.getElementById('btnExportZip');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<span>กำลังรวมไฟล์...</span>';
+            btn.disabled = true;
+
+            try {
+                const zip = new JSZip();
+                photoItems.forEach((item, idx) => {
+                    const dataUrl = renderPhotoToDataURL(item);
+                    const base64Data = dataUrl.split(',')[1];
+                    const fileName = `0${idx + 1}_${item.name}_ตีเส้นแล้ว.jpg`;
+                    zip.file(fileName, base64Data, { base64: true });
+                });
+
+                const blob = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ชุดภาพที่ดินตีเส้นแล้ว_${photoItems.length}รูป.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                showToast(`ดาวน์โหลดครบทั้ง ${photoItems.length} รูป (.ZIP) สำเร็จ!`, '📦');
+            } catch (err) {
+                showToast('เกิดข้อผิดพลาดในการสร้างไฟล์ ZIP', '⚠️');
+            } finally {
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }
+
+        let toastTimer = null;
+        function showToast(msg, icon = '✅') {
+            const banner = document.getElementById('toastBanner');
+            document.getElementById('toastMessage').textContent = msg;
+            document.getElementById('toastIcon').textContent = icon;
+            banner.classList.remove('opacity-0');
+            banner.classList.add('opacity-100');
+
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                banner.classList.remove('opacity-100');
+                banner.classList.add('opacity-0');
+            }, 2400);
+        }
+    </script>
+</body>
+</html>
